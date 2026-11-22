@@ -93,10 +93,6 @@ func siteToday(site leetcode.Site) string {
 	return now.Format("2006-01-02")
 }
 
-func (a *app) sidebarCollapsedPtr() *bool {
-	return &a.sidebarCollapsed
-}
-
 func (a *app) toggleSidebar() {
 	a.sidebarCollapsed = !a.sidebarCollapsed
 }
@@ -240,7 +236,7 @@ func (a *app) view(c *ui.Context) {
 			}
 		}
 	}
-	if a.screen != "workspace" && !a.showQuickOpen && !a.filterOpen && !a.sortOpen && !a.sitePopup && len(a.page.Problems) > 0 {
+	if a.screen != "workspace" && !a.showQuickOpen && !a.filterOpen && !a.sortOpen && !a.sitePopup && !a.accountPopup && !a.premiumModal && len(a.page.Problems) > 0 {
 		moved := false
 		if c.Shortcut(0, ui.KeyDown) {
 			if a.selectedRow < 0 {

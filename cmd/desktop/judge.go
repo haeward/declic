@@ -18,7 +18,8 @@ import (
 type judgeState struct {
 	cancel          context.CancelFunc
 	pending, submit bool
-	id, notice      string
+	expired         bool
+	notice          string
 	stage           string
 	language        string
 	result          leetcode.Judgment
@@ -53,16 +54,16 @@ func (a *app) requestJudge(submit bool) {
 		defer cancel()
 		var result leetcode.Judgment
 		var id, notice string
-		sent := false
+		sent, expired := false, false
 		defer func() {
 			a.post(func() {
 				if a.closed || a.judge != state {
 					return
 				}
-				if notice == "Session expired. Sign in again." {
+				if expired {
 					a.expireSession()
 				}
-				state.result, state.id, state.notice, state.pending = result, id, notice, false
+				state.result, state.notice, state.expired, state.pending = result, notice, expired, false
 				if submit && sent && result.Verdict == "Accepted" {
 					delete(a.resources, "Submissions")
 					if a.solved == nil {
@@ -82,7 +83,8 @@ func (a *app) requestJudge(submit bool) {
 		cookies, _, err := verifiedCookiesCached(ctx, client, user)
 		if err != nil {
 			notice = err.Error()
-			if err == errSessionExpired {
+			if errors.Is(err, errSessionExpired) {
+				expired = true
 				notice = "Session expired. Sign in again."
 			}
 			return
@@ -186,7 +188,7 @@ func (a *app) judgeResult(c *ui.Context) {
 	}
 	if s.notice != "" {
 		ui.Text(c, s.notice)
-		if s.notice == "Session expired. Sign in again." {
+		if s.expired {
 			quietButton(c, "Sign in again").OnClick(a.openLogin)
 		} else if s.submit {
 			ui.Link(c, "View submissions ↗", a.problemURL()+"submissions/")

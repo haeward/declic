@@ -99,7 +99,6 @@ type app struct {
 	tagSearch, sortColumn         string
 	descending                    bool
 	pageSize                      int
-	dailyCollapsed                bool
 	testcases                     []string
 	caseIndex                     int
 	caseChipSelected              bool
@@ -143,7 +142,6 @@ type app struct {
 	dailyError       string
 	catalogError     string
 	saveFailed       bool
-	draftSaved       bool
 	errorStatus      bool
 	appearance       string
 	restoreTemplate  bool
@@ -252,7 +250,6 @@ func (a *app) save(next func()) {
 			if a.code.Buffer.Version() == version {
 				a.code.Buffer.MarkSaved()
 			}
-			a.draftSaved = true
 			a.status = "Saved locally"
 			if a.code.Buffer.Modified() {
 				a.status = "Snapshot saved · newer edits pending"
@@ -265,14 +262,10 @@ func (a *app) save(next func()) {
 }
 
 func (a *app) load(problem leetcode.Problem, language string) {
-	a.loadWorkspace(a.site, a.account, problem, language)
+	a.loadIdentity(a.site, a.account, a.username, problem, language, "workspace")
 }
 
 // Commit the namespace and document together only after the draft can be read.
-func (a *app) loadWorkspace(site leetcode.Site, account string, problem leetcode.Problem, language string) {
-	a.loadIdentity(site, account, a.username, problem, language, "workspace")
-}
-
 func (a *app) loadIdentity(site leetcode.Site, account, username string, problem leetcode.Problem, language, screen string) {
 	a.loadIdentityWithCode(site, account, username, problem, language, screen, nil)
 }
@@ -344,7 +337,6 @@ func (a *app) loadIdentityWithCode(site leetcode.Site, account, username string,
 			buf.SetLanguage(editor.LanguageNamed(editorLanguage(language)))
 			a.code.Buffer = buf
 			a.version = buf.Version()
-			a.draftSaved = persisted
 			a.status = "Official template loaded"
 			if persisted {
 				a.status = "Saved locally"
@@ -481,6 +473,7 @@ func (a *app) open(slug string) {
 			}
 		}
 		if hasMeta && meta.Paid && (a.username == "" || (a.solved != nil && !a.premium)) {
+			a.navReplaying = false
 			a.restricted = meta
 			a.premiumModal = true
 			return
@@ -527,6 +520,7 @@ func (a *app) open(slug string) {
 			return func() {
 				a.loadingProblem = false
 				if err != nil {
+					a.navReplaying = false
 					a.problem = prevProblem
 					a.screen = prevScreen
 					if prevProblem.ID != "" {
@@ -537,6 +531,7 @@ func (a *app) open(slug string) {
 					return
 				}
 				if problem.Paid && !authorized {
+					a.navReplaying = false
 					a.problem = prevProblem
 					a.screen = prevScreen
 					if prevProblem.ID != "" {
@@ -549,6 +544,7 @@ func (a *app) open(slug string) {
 				a.putDetailCache(cacheKey, problem)
 				language := a.pickLanguageFor(problem)
 				if language == "" {
+					a.navReplaying = false
 					a.problem = prevProblem
 					a.screen = prevScreen
 					if prevProblem.ID != "" {
@@ -678,7 +674,7 @@ func (a *app) resetDocument(site leetcode.Site) {
 	a.lastCatalogScrollY = 0
 	a.accountNotice = ""
 	a.daily, a.dailyError, a.catalogError = leetcode.Daily{}, "", ""
-	a.english, a.saveFailed, a.draftSaved = false, false, false
+	a.english, a.saveFailed = false, false
 	a.problem = leetcode.Problem{}
 	if a.language == "" {
 		a.language = "java"
@@ -692,8 +688,6 @@ func (a *app) resetDocument(site leetcode.Site) {
 		a.preview.Page().LoadHTML(render.Description("Declic", "<p>Choose a problem to start practicing.</p>"), "")
 	}
 }
-
-func (a *app) selectAccount(account string) { a.selectIdentity(account, "") }
 
 func (a *app) selectIdentity(account, username string) {
 	if account == "anonymous" {
@@ -745,8 +739,8 @@ func (a *app) restoreOnStartup(site leetcode.Site, lastSlug string, verify func(
 			}
 			if ok && viewer.SignedIn && viewer.Username != "" && a.username == "" {
 				acct := fmt.Sprintf("%x", sha256.Sum256([]byte(viewer.Username)))
-				a.applyViewerProfile(viewer)
 				a.selectIdentity(acct, viewer.Username)
+				a.applyViewerProfile(viewer)
 			}
 			maybeOpenLast()
 		})

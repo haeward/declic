@@ -509,7 +509,7 @@ func paginationPages(current, total int) []int {
 
 func (a *app) dailyView(c *ui.Context) {
 	t := c.Theme()
-	bg, border, _, _, _ := dailyCardColors(c)
+	bg, border := dailyCardColors(c)
 	hoverBg, hoverBorder := dailyCardHoverColors(c)
 	topicBg, topicBorder := dailyTopicColors(c)
 	date, _ := time.Parse("2006-01-02", a.daily.Date)
@@ -727,7 +727,12 @@ func (a *app) sortButton(c *ui.Context, key string, w float32, align ui.Align) {
 			label += " ↑"
 		}
 	}
-	b := ui.ButtonBase(c).Label(key).Width(w).Height(28).Disabled(a.catalog == nil)
+	b := ui.ButtonBase(c).Label(key).Height(28).Disabled(a.catalog == nil)
+	if w > 0 {
+		b.Width(w)
+	} else {
+		b.Grow(1).Padding(0, 8, 0, 0)
+	}
 	if b.Hovered() {
 		fg = t.Text
 	}
@@ -739,24 +744,5 @@ func (a *app) sortButton(c *ui.Context, key string, w float32, align ui.Align) {
 }
 
 func (a *app) sortButtonGrow(c *ui.Context, key string) {
-	t := c.Theme()
-	label := key
-	fg := t.TextMuted
-	if a.sortColumn == key {
-		fg = t.Text
-		if a.descending {
-			label += " ↓"
-		} else {
-			label += " ↑"
-		}
-	}
-	b := ui.ButtonBase(c).Label(key).Grow(1).Height(28).Padding(0, 8, 0, 0).Disabled(a.catalog == nil)
-	if b.Hovered() {
-		fg = t.Text
-	}
-	b.Children(func() {
-		ui.Row(c).Fill().AlignItems(ui.Center).Children(func() {
-			ui.Text(c, label).FontSize(12).TextColor(fg).SingleLine()
-		})
-	}).OnClick(func() { a.toggleSort(key) })
+	a.sortButton(c, key, 0, ui.Start)
 }

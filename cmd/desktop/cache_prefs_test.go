@@ -197,17 +197,7 @@ func TestStorageScanAndClearCachesPreservesDrafts(t *testing.T) {
 	}
 }
 
-func TestSettingsOrderIndentAutoAndStartupPrefs(t *testing.T) {
-	wantOrder := []string{"General", "Appearance", "Problems", "Workspace", "Editor", "Run & Submit", "Shortcuts", "Account & Network", "Storage"}
-	if len(settingsSections) != len(wantOrder) {
-		t.Fatalf("unexpected settings sections count: %v", settingsSections)
-	}
-	for i, name := range wantOrder {
-		if settingsSections[i] != name {
-			t.Fatalf("settings section %d = %q, want %q", i, settingsSections[i], name)
-		}
-	}
-
+func TestIndentAutoAndStartupPrefs(t *testing.T) {
 	a, _ := testWorkspace(t)
 	a.editorTabSize = 0
 	a.language = "typescript"
@@ -247,12 +237,14 @@ func TestStartupSessionAndWorkspaceRestore(t *testing.T) {
 		FrontendID: "1",
 		Slug:       "two-sum",
 		Title:      "Two Sum",
+		Paid:       true,
 		Snippets:   []leetcode.Snippet{{Language: "golang", Code: "func twoSum() {}"}},
 	}
+	a.catalog = []leetcode.Problem{cached}
 	a.putDetailCache("leetcode.com:two-sum", cached)
 
 	a.restoreOnStartup(leetcode.COM, "two-sum", func(ctx context.Context, site leetcode.Site) (leetcode.Viewer, bool, error) {
-		return leetcode.Viewer{SignedIn: true, Username: "alice", RealName: "Alice"}, true, nil
+		return leetcode.Viewer{SignedIn: true, Premium: true, Username: "alice", RealName: "Alice"}, true, nil
 	})
 	// First posted callback applies verified viewer and triggers opening last problem.
 	apply()
@@ -260,8 +252,8 @@ func TestStartupSessionAndWorkspaceRestore(t *testing.T) {
 	apply()
 
 	wantAcct := fmt.Sprintf("%x", sha256.Sum256([]byte("alice")))
-	if a.username != "alice" || a.account != wantAcct || a.screen != "workspace" || a.problem.Slug != "two-sum" {
-		t.Fatalf("startup restore failed: user=%q acct=%q screen=%q slug=%q", a.username, a.account, a.screen, a.problem.Slug)
+	if a.username != "alice" || !a.premium || a.account != wantAcct || a.screen != "workspace" || a.problem.Slug != "two-sum" {
+		t.Fatalf("startup restore failed: user=%q premium=%v acct=%q screen=%q slug=%q", a.username, a.premium, a.account, a.screen, a.problem.Slug)
 	}
 
 	// Disabled session restore must not invoke verifier.

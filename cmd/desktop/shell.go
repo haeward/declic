@@ -22,13 +22,13 @@ func (a *app) windowNavControls(c *ui.Context) {
 
 func (a *app) sidebar(c *ui.Context) {
 	t := c.Theme()
-	collapsed := a.sidebarCollapsedPtr()
+	collapsed := a.sidebarCollapsed
 	width := float32(200)
-	if *collapsed {
+	if collapsed {
 		width = 56
 	}
 	item := func(icon *ui.SVG, label string, selected bool) ui.Element {
-		if !*collapsed {
+		if !collapsed {
 			return navItem(c, icon, label, selected)
 		}
 		b := ui.ButtonBase(c).Label(label).Size(36, 36).Center().Radius(9)
@@ -45,16 +45,16 @@ func (a *app) sidebar(c *ui.Context) {
 		return attachTooltip(c, b, label, tipRight)
 	}
 	ui.Column(c.Key("navigation")).Width(width).Shrink(0).FillHeight().Padding(6, 10, 14, 10).Gap(3).Background(sidebarColor(c)).Children(func() {
-		a.sidebarSiteBadge(c, *collapsed)
+		a.sidebarSiteBadge(c, collapsed)
 		item(iconProblems, "Problems", a.screen != "workspace").Disabled(a.busy).OnClick(func() { a.navigate("problems") })
 		if a.problem.ID != "" {
-			if !*collapsed {
+			if !collapsed {
 				ui.Text(c, "Current problem").FontSize(11).TextColor(t.TextMuted).Padding(14, 10, 4, 10)
 			}
 			curLabel := strings.TrimSpace(a.problem.FrontendID) + ". " + strings.TrimSpace(a.problem.Title)
 			item(iconCode, curLabel, a.screen == "workspace").Disabled(a.busy).OnClick(func() { a.navigate("workspace") })
 		}
-		if !*collapsed {
+		if !collapsed {
 			var others []leetcode.Problem
 			for _, rp := range a.recentProblems {
 				if rp.Slug != "" && rp.Slug != a.problem.Slug {
@@ -81,7 +81,7 @@ func (a *app) sidebar(c *ui.Context) {
 		var anchor ui.Element
 		if a.username == "" {
 			anchor = item(iconAccount, display, false)
-		} else if *collapsed {
+		} else if collapsed {
 			b := ui.ButtonBase(c).Label(display).Size(36, 36).Center().Radius(9)
 			if a.accountPopup {
 				b.Background(sidebarActiveColor(c))
@@ -121,7 +121,7 @@ func (a *app) sidebar(c *ui.Context) {
 		})
 		if a.accountPopup && a.username != "" {
 			ui.PopoverBase(c, anchor, &a.accountPopup, func(panel ui.Element) {
-				if *collapsed {
+				if collapsed {
 					panel.AttachTo(anchor, ui.AnchorBottomEnd, ui.AnchorBottomStart).Margin(0, 0, 0, 8)
 				} else {
 					panel.AttachTo(anchor, ui.AnchorTopStart, ui.AnchorBottomStart).Margin(0, 0, 8, 0)

@@ -92,7 +92,6 @@ func (a *app) statementHTML(source string) string {
 		}
 		tail.WriteString(`</div>`)
 	}
-	page = strings.Replace(page, "<h1></h1>", "", 1)
 	page = strings.Replace(page, "</style>", fmt.Sprintf("body{font-size:%dpx}</style>", max(13, a.descriptionSize)), 1)
 	return strings.Replace(page, "</body>", tail.String()+"</body>", 1)
 }
