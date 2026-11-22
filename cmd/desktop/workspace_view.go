@@ -24,25 +24,28 @@ func (a *app) problemURL() string {
 
 func (a *app) workspaceView(c *ui.Context) {
 	w, _ := c.Size()
-	ui.Column(c).Grow(1).FillWidth().MinHeight(0).Background(c.Theme().Surface).Children(func() {
-		if a.editorMaximized {
-			a.editorView(c)
-			return
-		}
-		if w < 1050 {
-			ui.Row(c).FillWidth().Height(44).Shrink(0).Padding(0, 16).Gap(20).BorderWidth(0, 0, 1, 0).BorderColor(hairlineColor(c)).Children(func() {
-				tabButton(c, "Description", a.narrowPane == "description").OnClick(func() { a.narrowPane = "description" })
-				tabButton(c, "Editor", a.narrowPane != "description").OnClick(func() { a.narrowPane = "editor" })
-			})
-			if a.narrowPane == "description" {
-				a.descriptionView(c, false)
-			} else {
+	ui.Box(c).Grow(1).FillWidth().MinHeight(0).Children(func() {
+		a.renderPrewarmedVideos(c)
+		ui.Column(c).Fill().Background(c.Theme().Surface).Children(func() {
+			if a.editorMaximized {
 				a.editorView(c)
+				return
 			}
-		} else {
-			a.split = max(38, min(58, a.split))
-			ui.SplitPercent(c, &a.split, func() { a.descriptionView(c, true) }, func() { a.editorView(c) }).Grow(1).FillWidth()
-		}
+			if w < 1050 {
+				ui.Row(c).FillWidth().Height(44).Shrink(0).Padding(0, 16).Gap(20).BorderWidth(0, 0, 1, 0).BorderColor(hairlineColor(c)).Children(func() {
+					tabButton(c, "Description", a.narrowPane == "description").OnClick(func() { a.narrowPane = "description" })
+					tabButton(c, "Editor", a.narrowPane != "description").OnClick(func() { a.narrowPane = "editor" })
+				})
+				if a.narrowPane == "description" {
+					a.descriptionView(c, false)
+				} else {
+					a.editorView(c)
+				}
+			} else {
+				a.split = max(38, min(58, a.split))
+				ui.SplitPercent(c, &a.split, func() { a.descriptionView(c, true) }, func() { a.editorView(c) }).Grow(1).FillWidth()
+			}
+		})
 	})
 }
 
@@ -53,23 +56,29 @@ func (a *app) descriptionView(c *ui.Context, rightBorder bool) {
 		col.BorderWidth(0, 1, 0, 0).BorderColor(hairlineColor(c))
 	}
 	col.Children(func() {
+		if a.site == leetcode.CN && a.resourceTab == "Editorial" {
+			a.resourceTab = "Description"
+		}
 		ui.Row(c).FillWidth().Height(44).Shrink(0).Padding(0, 22).Gap(18).BorderWidth(0, 0, 1, 0).BorderColor(hairlineColor(c)).Children(func() {
-			tabs := []struct {
+			type tabSpec struct {
 				name string
 				icon *ui.SVG
 				tint ui.Color
-			}{
-				{"Description", iconDescription, t.Accent},
-				{"Editorial", iconEditorial, ui.Hex("#d97706")},
-				{"Solutions", iconSolutions, ui.Hex("#0284c7")},
-				{"Submissions", iconSubmissions, t.Accent},
 			}
+			tabs := []tabSpec{{"Description", iconDescription, t.Accent}}
+			if a.site != leetcode.CN {
+				tabs = append(tabs, tabSpec{"Editorial", iconEditorial, ui.Hex("#d97706")})
+			}
+			tabs = append(tabs,
+				tabSpec{"Solutions", iconSolutions, ui.Hex("#0284c7")},
+				tabSpec{"Submissions", iconSubmissions, t.Accent},
+			)
 			for _, tab := range tabs {
 				selected := a.resourceTab == tab.name || (a.resourceTab == "" && tab.name == "Description")
 				name := tab.name
 				tabButtonWithIcon(c, tab.icon, name, selected, tab.tint).OnClick(func() {
 					if a.resourceTab != name {
-						a.stopInlineVideo()
+						a.pauseInlineVideos()
 						a.resourceTab = name
 					}
 				})

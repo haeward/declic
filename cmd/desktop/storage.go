@@ -149,6 +149,7 @@ func (a *app) clearPublicCachesAsync() {
 				a.resourceCache = nil
 				a.slideDecks = nil
 				a.linkedImages = nil
+				a.cnVideos = nil
 				a.playgrounds = nil
 				imageCacheMu.Lock()
 				clear(imageCache)

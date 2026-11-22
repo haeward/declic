@@ -58,6 +58,7 @@ type app struct {
 	mermaidShowSrc                map[string]bool
 	videoSession                  *mygo.Session
 	inlineVideos                  map[string]*mygo.WebView
+	cnVideos                      map[string]*cnVideoState
 	editorMaximized               bool
 	loadingProblem                bool
 	premiumModal                  bool
@@ -324,7 +325,7 @@ func (a *app) loadIdentityWithCode(site leetcode.Site, account, username string,
 				a.lastProblemSlug = problem.Slug
 				a.recordNav("workspace", problem.Slug)
 				a.recordRecentProblem(problem)
-				if !problem.Paid && a.win != nil {
+				if site != leetcode.CN && (!problem.Paid || a.premium) && a.win != nil {
 					a.prefetchEditorial(site, problem.Slug)
 				}
 			}
@@ -639,6 +640,7 @@ func (a *app) resetDocument(site leetcode.Site) {
 	a.codeTabSelected = nil
 	a.slideDecks = nil
 	a.linkedImages = nil
+	a.cnVideos = nil
 	a.mermaidShowSrc = nil
 	a.recentProblems = nil
 	a.lastProblemSlug = ""

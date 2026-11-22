@@ -74,13 +74,13 @@ func (a *app) markdownCustomCodeRenderers() map[string]func(c *ui.Context, b *ma
 	return map[string]func(c *ui.Context, b *markdown.CodeBlockView){
 		"declic-video": func(c *ui.Context, b *markdown.CodeBlockView) {
 			lines := strings.Split(strings.TrimSpace(b.Code()), "\n")
-			videoURL := strings.TrimSpace(lines[0])
-			posterURL := ""
-			if len(lines) >= 2 {
-				posterURL = strings.TrimSpace(lines[1])
+			if videoURL := strings.TrimSpace(lines[0]); videoURL != "" {
+				a.renderVideoSolutionCard(c, videoURL)
 			}
-			if videoURL != "" {
-				a.renderVideoSolutionCard(c, videoURL, posterURL)
+		},
+		"declic-cn-video": func(c *ui.Context, b *markdown.CodeBlockView) {
+			if uuid := strings.TrimSpace(b.Code()); render.IsSafeSlug(uuid) {
+				a.renderCNVideoCard(c, uuid)
 			}
 		},
 		"declic-playground": func(c *ui.Context, b *markdown.CodeBlockView) {

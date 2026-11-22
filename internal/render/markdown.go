@@ -30,6 +30,7 @@ var (
 	reEmptyHTMLBlock = regexp.MustCompile(`(?is)<(?:div|p)\b[^>]*>(?:\s|&nbsp;|&#160;|<br\s*/?>)*</(?:div|p)>`)
 	reSlideCarousel  = regexp.MustCompile(`(?s)!\?!([^!\n]+?\.json[^!\n]*?)!\?!`)
 	reMultiBlank     = regexp.MustCompile(`\n{3,}`)
+	reVideoUUID      = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 )
 
 func extractAttr(attrs string, re *regexp.Regexp) string {
@@ -328,8 +329,62 @@ func PreprocessArticleMarkdown(src string) (string, []PlaygroundRef, []string) {
 	flushProse()
 
 	cleaned := reMultiBlank.ReplaceAllString(out.String(), "\n\n")
+	cleaned = stripEmptyVideoSections(cleaned)
 	cleaned = mergeConsecutiveCodeBlocks(strings.TrimSpace(cleaned))
 	return cleaned, refs, videos
+}
+
+func isEmptyVideoHeading(line string) bool {
+	s := strings.TrimSpace(line)
+	if !strings.HasPrefix(s, "#") {
+		return false
+	}
+	s = strings.TrimSpace(strings.TrimLeft(s, "#"))
+	low := strings.ToLower(s)
+	return low == "video solution" || low == "视频题解"
+}
+
+func isHorizontalRuleLine(line string) bool {
+	s := strings.TrimSpace(line)
+	if s == "" {
+		return false
+	}
+	low := strings.ToLower(s)
+	if low == "<hr>" || low == "<hr/>" || low == "<hr />" {
+		return true
+	}
+	if len(s) >= 3 && (strings.Trim(s, "- ") == "" || strings.Trim(s, "* ") == "" || strings.Trim(s, "_ ") == "") {
+		return true
+	}
+	return false
+}
+
+// stripEmptyVideoSections drops orphan "Video Solution" headings whose video was
+// omitted (e.g., Premium-only editorial videos for non-Premium viewers).
+func stripEmptyVideoSections(src string) string {
+	lines := strings.Split(src, "\n")
+	out := make([]string, 0, len(lines))
+	inFence := false
+	for i := 0; i < len(lines); i++ {
+		trim := strings.TrimSpace(lines[i])
+		if strings.HasPrefix(trim, "```") {
+			inFence = !inFence
+			out = append(out, lines[i])
+			continue
+		}
+		if !inFence && isEmptyVideoHeading(lines[i]) {
+			j := i + 1
+			for j < len(lines) && (strings.TrimSpace(lines[j]) == "" || isHorizontalRuleLine(lines[j])) {
+				j++
+			}
+			if j >= len(lines) || strings.HasPrefix(strings.TrimSpace(lines[j]), "#") {
+				i = j - 1
+				continue
+			}
+		}
+		out = append(out, lines[i])
+	}
+	return reMultiBlank.ReplaceAllString(strings.Join(out, "\n"), "\n\n")
 }
 
 // convertDigitStartedInlineMath converts closed $0$, $1 \le n$, $10^4$ inline formulas
@@ -483,7 +538,25 @@ func rewriteMarkdownLinkedAndInlineImages(s string, addVideo func(string)) strin
 			if ok1 && p1 < len(s) && s[p1] == '(' {
 				imgRaw, p2, ok2 := scanBalanced(s, p1, '(', ')')
 				if ok2 {
+					rawTarget := strings.TrimSpace(imgRaw)
+					if reVideoUUID.MatchString(rawTarget) {
+						out.WriteString("\n\n```declic-cn-video\n")
+						out.WriteString(rawTarget)
+						out.WriteString("\n```\n\n")
+						i = p2
+						continue
+					}
 					imgURL := normalizeMediaURL(imgRaw)
+					if IsDirectVideoURL(imgURL) {
+						if addVideo != nil {
+							addVideo(imgURL)
+						}
+						out.WriteString("\n\n```declic-video\n")
+						out.WriteString(imgURL)
+						out.WriteString("\n```\n\n")
+						i = p2
+						continue
+					}
 					if u, err := url.Parse(imgURL); err == nil && u.Scheme == "https" && u.Host != "" && u.User == nil {
 						// Check if preceded/followed by non-whitespace on the same line.
 						prevNonWS := i > 0 && s[i-1] != '\n'
