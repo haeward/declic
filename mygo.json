@@ -1,0 +1,12 @@
+{
+  "name": "Declic",
+  "identifier": "io.github.haeward.declic",
+  "version": "0.1.0",
+  "main": "./cmd/desktop",
+  "out": "build",
+  "macos": {
+    "icon": "icon/AppIcon.icon",
+    "minimumSystemVersion": "14.0"
+  },
+  "slug": "declic"
+}

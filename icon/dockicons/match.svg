@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <defs>
+    <path id="tile" d="M184 50 H328 C382 50 406 58 430 82 S462 130 462 184
+      V328 C462 382 454 406 430 430 S382 462 328 462
+      H184 C130 462 106 454 82 430 S50 382 50 328
+      V184 C50 130 58 106 82 82 S130 50 184 50 Z"/>
+    <clipPath id="frame"><use href="#tile"/></clipPath>
+    <linearGradient id="surface" x2="0" y2="1">
+      <stop stop-color="#fff5e8"/>
+      <stop offset="1" stop-color="#f9efdf"/>
+    </linearGradient>
+    <linearGradient id="rim" x2="0" y2="1">
+      <stop stop-color="white" stop-opacity=".30"/>
+      <stop offset=".35" stop-color="white" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <g clip-path="url(#frame)">
+    <rect x="50" y="50" width="412" height="412" fill="url(#surface)"/>
+    <path fill="#fd3b1e" d="M224 126 C235 151 255 159 281 166
+      C306 172 323 184 332 201 C338 213 338 227 332 240
+      C326 228 315 220 301 220 C288 220 277 227 271 239
+      C266 231 265 217 259 206 C254 196 245 190 236 178
+      C226 165 220 146 224 126 Z"/>
+    <path fill="#2e2e2e" d="M132 378 L274 253
+      C274 238 286 226 301 226 C316 226 329 238 329 253
+      C329 268 317 280 302 280 Q296 280 291.5 278.5
+      L152 401 Z"/>
+    <use href="#tile" fill="none" stroke="url(#rim)" stroke-width="3"/>
+  </g>
+</svg>
