@@ -6,7 +6,7 @@
 
 **A fast, native, open-source desktop client for LeetCode. Practice until it clicks.**
 
-Built with Go and [MyGo](https://github.com/egoist/mygo) Native UI for a focused desktop practice experience on both `leetcode.com` and `leetcode.cn`.
+Built with Go and [MyGo](https://github.com/egoist/mygo) Native UI, supporting both `leetcode.com` and `leetcode.cn`.
 
 [![Release](https://img.shields.io/github/v/release/haeward/declic?include_prereleases&style=flat-square&color=0a64f0)](https://github.com/haeward/declic/releases)
 [![CI](https://img.shields.io/github/actions/workflow/status/haeward/declic/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/haeward/declic/actions/workflows/ci.yml)
@@ -104,7 +104,7 @@ shasum -a 256 -c SHA256SUMS.txt
 ## Roadmap
 
 - [ ] **Deeper editor & judge loop**: Compile/runtime error diagnostics with click-to-jump, language draft indicators, basic code completion, side-by-side diff against past submissions, and customizable shortcuts.
-- [ ] **Cross-platform & signed releases**: Native runtime validation and installers for Windows and Linux, signed/notarized release packages, and optional in-app updates.
+- [ ] **Cross-platform releases**: Native runtime validation and installers for Windows and Linux, plus optional in-app updates.
 - [ ] **Catalog expansion & localization**: Additional LeetCode categories (Database, Shell, Concurrency, JavaScript), curated study plans, and Simplified Chinese UI localization.
 - [ ] **Focused practice modes**: Vim keymap mode, reusable algorithm snippets, and a distraction-free mock interview mode.
 
