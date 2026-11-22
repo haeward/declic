@@ -25,12 +25,13 @@ Use `go tool mygo` to run the pinned CLI. No separate JavaScript frontend toolch
 
 Direct pushes to `main` are blocked by branch protection; all changes must go through a pull request targeting `main` and pass the required CI checks. Use a draft PR while work is in progress or to request early feedback.
 
+- Name topic branches with short lowercase `<type>/<topic>` slugs (`feat/`, `fix/`, `docs/`, `refactor/`, `test/`, `ci/`, `chore/`; e.g., `fix/draft-save`, `docs/pr-guide`).
 - Keep each PR focused on one problem, without unrelated refactoring or formatting.
 - Follow existing Go patterns, prefer the standard library and existing dependencies, and format changed Go files with `gofmt`.
 - Test changed behavior and regressions, especially authentication boundaries, API handling, and draft preservation.
 - Update relevant documentation only when the change affects it. Write documentation in English and describe confirmed behavior.
 - Review your own diff, resolve merge conflicts, and exclude build artifacts, credentials, and local account data.
-- Use [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) for commit messages.
+- Use [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) for commit messages and PR titles; keep the subject line concise (ideally ≤ 50 characters, and under 72 characters including any `(#N)` suffix on squash merges), placing extra details in the commit body or PR description.
 
 You are responsible for understanding and verifying everything you submit, including AI-assisted code and text.
 
