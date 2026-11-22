@@ -29,12 +29,18 @@ func (c *Client) responseError(resp *http.Response) error {
 	if resp.StatusCode != http.StatusTooManyRequests {
 		return &StatusError{Site: c.Site, StatusCode: resp.StatusCode}
 	}
-	at := time.Now().Add(time.Minute)
+	now := time.Now()
+	at := now.Add(time.Minute)
+	maxAt := now.Add(24 * time.Hour)
 	header := resp.Header.Get("Retry-After")
 	if seconds, err := strconv.Atoi(header); err == nil && seconds >= 0 && seconds <= 86400 {
-		at = time.Now().Add(time.Duration(seconds) * time.Second)
-	} else if date, err := http.ParseTime(header); err == nil && date.After(time.Now()) {
-		at = date
+		at = now.Add(time.Duration(seconds) * time.Second)
+	} else if date, err := http.ParseTime(header); err == nil && date.After(now) {
+		if date.After(maxAt) {
+			at = maxAt
+		} else {
+			at = date
+		}
 	}
 	return &RateLimit{Site: c.Site, RetryAt: at}
 }

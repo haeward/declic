@@ -215,7 +215,7 @@ func TestLiveGuestArticles(t *testing.T) {
 		c := New(site)
 		ctx := context.Background()
 		t.Run(string(site)+"/editorial", func(t *testing.T) {
-			_, err := c.Editorial(ctx, "two-sum")
+			_, err := c.EditorialForViewer(ctx, "two-sum", nil)
 			if err != nil {
 				t.Fatal(err)
 			}

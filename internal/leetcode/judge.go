@@ -80,10 +80,17 @@ func hasNonEmpty(values []string) bool {
 	return false
 }
 
-var judgeID = regexp.MustCompile(`^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*$`)
+var (
+	judgeID  = regexp.MustCompile(`^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*$`)
+	safeSlug = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+)
 
 func validJudgeID(id string) bool {
 	return len(id) > 0 && len(id) <= 128 && judgeID.MatchString(id)
+}
+
+func validSlug(slug string) bool {
+	return len(slug) > 0 && len(slug) <= 160 && safeSlug.MatchString(slug)
 }
 
 func (c *Client) judgeRequest(ctx context.Context, path, slug string, body any, cookies []*http.Cookie, result any) error {
@@ -110,11 +117,14 @@ func (c *Client) judgeRequest(ctx context.Context, path, slug string, body any, 
 		req.Header.Set("Origin", c.Site.URL())
 	}
 	referer := c.Site.URL() + "/"
-	if slug != "" {
+	if validSlug(slug) {
 		referer = c.Site.URL() + "/problems/" + url.PathEscape(slug) + "/"
 	}
 	req.Header.Set("Referer", referer)
 	for _, cookie := range cookies {
+		if cookie == nil {
+			continue
+		}
 		req.AddCookie(cookie)
 		if cookie.Name == "csrftoken" {
 			req.Header.Set("X-CSRFToken", cookie.Value)
@@ -128,9 +138,12 @@ func (c *Client) judgeRequest(ctx context.Context, path, slug string, body any, 
 	if resp.StatusCode != 200 {
 		return c.responseError(resp)
 	}
-	return json.NewDecoder(io.LimitReader(resp.Body, 2<<20)).Decode(result)
+	return json.NewDecoder(io.LimitReader(resp.Body, 8<<20)).Decode(result)
 }
 func (c *Client) StartJudge(ctx context.Context, submit bool, p Problem, language, code string, cases []string, cookies []*http.Cookie) (string, error) {
+	if !validSlug(p.Slug) || strings.TrimSpace(p.ID) == "" {
+		return "", fmt.Errorf("invalid problem")
+	}
 	action := "submit"
 	payload := map[string]any{"question_id": p.ID, "lang": language, "typed_code": code}
 	if !submit {
@@ -148,7 +161,7 @@ func (c *Client) StartJudge(ctx context.Context, submit bool, p Problem, languag
 	id := response.Interpret
 	if submit {
 		id = response.Submission.String()
-		if _, err := strconv.ParseUint(id, 10, 64); err != nil {
+		if n, err := strconv.ParseUint(id, 10, 64); err != nil || n == 0 {
 			return "", fmt.Errorf("missing submission identifier")
 		}
 	}
