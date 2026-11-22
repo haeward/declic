@@ -30,7 +30,7 @@ Direct pushes to `main` are blocked by branch protection; all changes must go th
 - Test changed behavior and regressions, especially authentication boundaries, API handling, and draft preservation.
 - Update relevant documentation only when the change affects it. Write documentation in English and describe confirmed behavior.
 - Review your own diff, resolve merge conflicts, and exclude build artifacts, credentials, and local account data.
-- Use [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) for commit messages.
+- Use [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) for commit messages and PR titles; keep the subject line concise (ideally ≤ 50 characters, and under 72 characters including any `(#N)` suffix on squash merges), placing extra details in the commit body or PR description.
 
 You are responsible for understanding and verifying everything you submit, including AI-assisted code and text.
 
