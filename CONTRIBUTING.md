@@ -25,6 +25,7 @@ Use `go tool mygo` to run the pinned CLI. No separate JavaScript frontend toolch
 
 Direct pushes to `main` are blocked by branch protection; all changes must go through a pull request targeting `main` and pass the required CI checks. Use a draft PR while work is in progress or to request early feedback.
 
+- Name topic branches with short lowercase `<type>/<topic>` slugs (`feat/`, `fix/`, `docs/`, `refactor/`, `test/`, `ci/`, `chore/`; e.g., `fix/draft-save`, `docs/pr-guide`).
 - Keep each PR focused on one problem, without unrelated refactoring or formatting.
 - Follow existing Go patterns, prefer the standard library and existing dependencies, and format changed Go files with `gofmt`.
 - Test changed behavior and regressions, especially authentication boundaries, API handling, and draft preservation.
