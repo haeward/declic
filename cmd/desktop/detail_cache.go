@@ -141,7 +141,7 @@ var (
 	imageHTTP    = &http.Client{
 		Timeout: 8 * time.Second,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if req.URL.Scheme != "https" || len(via) >= 5 {
+			if req.URL.Scheme != "https" || req.URL.Host == "" || req.URL.User != nil || len(via) >= 5 {
 				return http.ErrUseLastResponse
 			}
 			return nil
@@ -182,9 +182,13 @@ func fetchSafeBitmap(rawURL string) (*ui.Bitmap, error) {
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("image status %d", resp.StatusCode)
 	}
-	data, err := io.ReadAll(io.LimitReader(resp.Body, 10<<20))
+	const maxImageBytes = 10 << 20
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxImageBytes+1))
 	if err != nil {
 		return nil, err
+	}
+	if len(data) > maxImageBytes {
+		return nil, fmt.Errorf("image exceeds size limit")
 	}
 	img, _, err := image.Decode(bytes.NewReader(data))
 	if err != nil {

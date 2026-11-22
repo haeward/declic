@@ -149,19 +149,7 @@ func (a *app) settingsView(c *ui.Context) {
 						})
 					})
 					settingRow(c, "Show topic tags", "Turn off to avoid spoilers", func() {
-						segmentedTrack(c, func() {
-							for _, opt := range []struct {
-								label string
-								show  bool
-							}{{"On", true}, {"Off", false}} {
-								active := a.showTopics == opt.show
-								fg := t.TextMuted
-								if active {
-									fg = t.Text
-								}
-								segmentItem(c, opt.label, active, fg, 28).OnClick(func() { a.showTopics = opt.show })
-							}
-						})
+						onOffSegmented(c, a.showTopics, func(on bool) { a.showTopics = on })
 					})
 				case "Problems":
 					settingRow(c, "Acceptance column", "Show acceptance rate in the problem list", func() {

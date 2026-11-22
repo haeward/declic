@@ -15,13 +15,9 @@ import (
 )
 
 type playgroundState struct {
-	site     leetcode.Site
-	uuid     string
 	loading  bool
 	loaded   bool
-	failed   bool
 	snippets []leetcode.Snippet
-	selected string
 }
 
 func (a *app) markdownCodeOptions() *markdown.Options {
@@ -41,7 +37,7 @@ func (a *app) ensurePlayground(site leetcode.Site, uuid string) *playgroundState
 	key := string(site) + ":" + uuid
 	pg := a.playgrounds[key]
 	if pg == nil {
-		pg = &playgroundState{site: site, uuid: uuid}
+		pg = &playgroundState{}
 		a.playgrounds[key] = pg
 	}
 	if !pg.loading && !pg.loaded && a.post != nil {
@@ -57,7 +53,6 @@ func (a *app) ensurePlayground(site leetcode.Site, uuid string) *playgroundState
 				pg.loading = false
 				pg.loaded = true
 				if err != nil || len(snippets) == 0 {
-					pg.failed = true
 					return
 				}
 				pg.snippets = snippets

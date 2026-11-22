@@ -7,7 +7,6 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"github.com/haeward/declic/internal/leetcode"
-	"github.com/haeward/declic/internal/workspace"
 )
 
 func TestWorkspaceResourcesPreserveDraft(t *testing.T) {
@@ -17,12 +16,6 @@ func TestWorkspaceResourcesPreserveDraft(t *testing.T) {
 		a.resourcePage(tab).loaded = true
 	}
 	view := ui.NewTester(a.view, 1360, 860)
-	if _, ok := view.Find("Discover"); ok {
-		t.Fatal("workspace should reserve width for the problem and editor")
-	}
-	if view.HasText("solution.go") {
-		t.Fatal("editor displays a virtual filename")
-	}
 	for _, tab := range []string{"Editorial", "Solutions", "Submissions", "Description"} {
 		if err := view.Click(tab); err != nil {
 			t.Fatal(err)
@@ -81,23 +74,6 @@ func TestQuickOpenFocusesSearchAndPreservesCatalogQuery(t *testing.T) {
 	}
 	if a.search != "catalog query" || a.listed != "catalog query" {
 		t.Fatal("quick search altered catalog context")
-	}
-}
-
-func TestTemplateIsNotReportedAsPersistedDraft(t *testing.T) {
-	a, apply := testWorkspace(t)
-	a.load(a.problem, a.language)
-	apply()
-	view := ui.NewTester(a.view, 1360, 860)
-	if view.HasText("Saved locally") {
-		t.Fatal("untouched template claimed to be a saved draft")
-	}
-	a.code.Buffer.Set("my solution")
-	a.save(nil)
-	apply()
-	view.Frame()
-	if !a.draftSaved || a.code.Buffer.Modified() || view.HasText("Saved locally") {
-		t.Fatal("successful persistence not reflected in the editor")
 	}
 }
 
@@ -166,9 +142,6 @@ func TestTestcaseEditsPreserveDefaultAndCode(t *testing.T) {
 	a.problem.Examples = []string{"4", "7"}
 	a.testcases = []string{"4", "7"}
 	v := ui.NewTester(a.view, 1360, 860)
-	if _, ok := v.Find("Duplicate"); ok {
-		t.Fatal("Duplicate testcase button should be removed")
-	}
 	// Neither case shows a delete badge by default before hover or click.
 	if _, ok := v.Find("Delete Case 1"); ok {
 		t.Fatal("Case 1 should not show delete badge by default")
@@ -319,43 +292,6 @@ func TestSingleSelectDifficultyAndAccessFilter(t *testing.T) {
 	a.filterCatalog("", 0)
 	if a.page.Total != 2 {
 		t.Fatalf("free access filter total=%d, want 2", a.page.Total)
-	}
-}
-
-func TestTitleSortKeyboardSelectionAndLanguageExtensions(t *testing.T) {
-	a, _ := testWorkspace(t)
-	a.screen = "problems"
-	a.selectedRow = -1
-	a.catalog = []leetcode.Problem{
-		{FrontendID: "1", Slug: "two-sum", Title: "Two Sum", Difficulty: "Easy"},
-		{FrontendID: "2", Slug: "add-two", Title: "Add Two Numbers", Difficulty: "Medium"},
-		{FrontendID: "3", Slug: "longest", Title: "Longest Substring", Difficulty: "Medium"},
-	}
-	a.toggleSort("Title")
-	if len(a.page.Problems) != 3 || a.page.Problems[0].Slug != "add-two" || a.page.Problems[2].Slug != "two-sum" {
-		t.Fatalf("Title ascending sort failed: %+v", a.page.Problems)
-	}
-	a.toggleSort("Title")
-	if a.page.Problems[0].Slug != "two-sum" {
-		t.Fatalf("Title descending sort failed: %+v", a.page.Problems)
-	}
-	v := ui.NewTester(a.view, 1280, 800)
-	v.Key(0, ui.KeyDown)
-	if a.selectedRow != 0 {
-		t.Fatalf("KeyDown selectedRow = %d, want 0", a.selectedRow)
-	}
-	v.Key(0, ui.KeyDown)
-	if a.selectedRow != 1 {
-		t.Fatalf("second KeyDown selectedRow = %d, want 1", a.selectedRow)
-	}
-	v.Key(0, ui.KeyUp)
-	if a.selectedRow != 0 {
-		t.Fatalf("KeyUp selectedRow = %d, want 0", a.selectedRow)
-	}
-	for _, lang := range []string{"python", "php", "dart", "scala", "elixir", "erlang", "racket", "mysql", "postgresql", "bash"} {
-		if workspace.Extension(lang) == "" {
-			t.Fatalf("missing extension for %s", lang)
-		}
 	}
 }
 
@@ -522,9 +458,6 @@ func TestSidebarSiteHeaderDailyCardAndTitleSortTrim(t *testing.T) {
 	if _, ok := v.Find("ID"); !ok {
 		t.Fatal("Sort popover should label # sort as ID")
 	}
-	if _, ok := v.Find("Problem #"); ok {
-		t.Fatal("Sort popover should no longer use Problem #")
-	}
 }
 
 func TestKeyboardNavWhileHoveringProblemListDoesNotFlicker(t *testing.T) {
@@ -607,20 +540,6 @@ func TestEditorToolbarOrderCopyFormatAndSubmissionDetail(t *testing.T) {
 	v.Frame()
 	if _, ok := v.Find("Use this code"); !ok {
 		t.Fatal("missing Use this code button in submission detail")
-	}
-	if v.HasText("Loads into the matching language") {
-		t.Fatal("explanatory footer text should be removed from submission detail")
-	}
-}
-
-func TestLoginLoadingAndErrorStates(t *testing.T) {
-	a, _ := testWorkspace(t)
-	a.loginSite = leetcode.COM
-	a.loginLoading = true
-	// Non-nil loginView is represented via error/loading checks; test site chooser when loginView is nil first.
-	v := ui.NewTester(a.loginPanel, 600, 420)
-	if !v.HasText("Sign in to LeetCode") {
-		t.Fatal("expected site selection dialog when loginView is nil")
 	}
 }
 

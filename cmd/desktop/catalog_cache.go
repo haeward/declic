@@ -56,18 +56,7 @@ func writeCatalogCache(root, site string, rows []leetcode.Problem) {
 	if path == "" {
 		return
 	}
-	dir := filepath.Dir(path)
-	if os.MkdirAll(dir, 0700) != nil {
-		return
-	}
-	f, err := os.CreateTemp(dir, ".catalog-*")
-	if err != nil {
-		return
-	}
-	defer os.Remove(f.Name())
-	err = json.NewEncoder(f).Encode(rows)
-	closeErr := f.Close()
-	if err == nil && closeErr == nil {
-		_ = os.Rename(f.Name(), path)
+	if raw, err := json.Marshal(rows); err == nil {
+		writeCacheFile(path, raw)
 	}
 }

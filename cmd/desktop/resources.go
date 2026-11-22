@@ -51,20 +51,7 @@ var submissionStatuses = []string{
 	"Compile Error",
 }
 
-func resolveArticleImageURLs(site leetcode.Site, slug, raw string) []string {
-	cleaned := strings.TrimSpace(raw)
-	if cleaned == "" {
-		return nil
-	}
-	if strings.HasPrefix(cleaned, "//") {
-		cleaned = "https:" + cleaned
-	}
-	if strings.HasPrefix(cleaned, "https://") {
-		return []string{cleaned}
-	}
-	if strings.Contains(cleaned, "://") || strings.HasPrefix(cleaned, "data:") {
-		return nil
-	}
+func resolveEditorialRelativeURLs(site leetcode.Site, slug, relPath string) []string {
 	if site == "" {
 		return nil
 	}
@@ -79,18 +66,39 @@ func resolveArticleImageURLs(site leetcode.Site, slug, raw string) []string {
 		}
 		out = append(out, u)
 	}
-	if rel, err := url.Parse(cleaned); err == nil {
-		if resolved := base.ResolveReference(rel); resolved.Scheme == "https" && resolved.Host != "" && resolved.User == nil {
+	if rel, err := url.Parse(relPath); err == nil && rel.Scheme == "" && rel.Host == "" {
+		if resolved := base.ResolveReference(rel); resolved.Scheme == "https" && resolved.Host == base.Host && resolved.User == nil {
 			add(resolved.String())
 		}
 	}
-	trimmed := strings.TrimLeft(cleaned, "./")
+	trimmed := strings.TrimLeft(relPath, "./")
 	if trimmed != "" {
 		add(site.URL() + "/problems/" + url.PathEscape(slug) + "/" + trimmed)
 		add(site.URL() + "/" + trimmed)
 		add("https://assets.leetcode.com/static_assets/media/" + trimmed)
 	}
 	return out
+}
+
+func resolveArticleImageURLs(site leetcode.Site, slug, raw string) []string {
+	cleaned := strings.TrimSpace(raw)
+	if cleaned == "" {
+		return nil
+	}
+	if strings.HasPrefix(cleaned, "//") {
+		cleaned = "https:" + cleaned
+	}
+	u, err := url.Parse(cleaned)
+	if err != nil {
+		return nil
+	}
+	if u.Scheme != "" {
+		if u.Scheme == "https" && u.Host != "" && u.User == nil {
+			return []string{u.String()}
+		}
+		return nil
+	}
+	return resolveEditorialRelativeURLs(site, slug, cleaned)
 }
 
 type articleContext struct {
@@ -412,7 +420,7 @@ func (a *app) resourceView(c *ui.Context) {
 					}
 					if tab == "Editorial" && !s.article.Visible && (s.article.Paid || s.article.Content == "") {
 						emptyStateAction(c, iconLock, "Premium Editorial", "This official editorial requires a LeetCode Premium subscription.", "Open on "+string(a.site), func() {
-							a.openExternal(a.problemURL() + "editorial/")
+							mygo.Shell.OpenExternal(a.problemURL() + "editorial/")
 						})
 						return
 					}
@@ -422,12 +430,12 @@ func (a *app) resourceView(c *ui.Context) {
 						s.cleanedRaw = s.article.Content
 						s.cleanedMD, s.cleanedRefs, s.cleanedVideos = render.PreprocessArticleMarkdown(s.article.Content)
 						s.cleanedHeadings = markdownHeadings(s.cleanedMD)
-					}
-					for _, ref := range s.cleanedRefs {
-						a.ensurePlayground(ref.Site, ref.UUID)
-					}
-					for _, vid := range s.cleanedVideos {
-						a.ensureInlineVideo(vid)
+						for _, ref := range s.cleanedRefs {
+							a.ensurePlayground(ref.Site, ref.UUID)
+						}
+						for _, vid := range s.cleanedVideos {
+							a.ensureInlineVideo(vid)
+						}
 					}
 					if len(s.cleanedHeadings) >= 2 {
 						a.markdownTOC(c, s, s.cleanedHeadings, opts)
@@ -581,7 +589,7 @@ func (a *app) resourceView(c *ui.Context) {
 						b.Background(t.SurfaceHover)
 					}
 					b.Children(func() {
-						submissionRow(c, []string{row.Status, languageDisplayName(row.Language), row.Runtime, row.Memory, time.Unix(stamp, 0).Format("Jan 2")}, color, false)
+						submissionRow(c, []string{row.Status, languageDisplayName(row.Language), row.Runtime, row.Memory, time.Unix(stamp, 0).Format("Jan 2")}, color)
 					}).OnClick(func() { a.loadResource(tab, nil, &row) })
 				}
 				if len(filtered) == 0 {
@@ -847,47 +855,38 @@ func (a *app) markdownTOC(c *ui.Context, s *resourcePage, headings []mdHeading, 
 	})
 }
 
-func (a *app) openExternal(rawURL string) {
-	if rawURL != "" {
-		mygo.Shell.OpenExternal(rawURL)
-	}
-}
-
-func (a *app) useSubmission(sub leetcode.Submission) {
+func (a *app) useSubmission(sub leetcode.Submission) bool {
 	for _, snippet := range a.problem.Snippets {
 		if snippet.Language == sub.Language && workspace.Extension(sub.Language) != "" {
 			if a.language == sub.Language {
 				a.code.Buffer.Set(sub.Code)
-				return
+				return true
 			}
 			a.save(func() {
 				a.loadIdentityWithCode(a.site, a.account, a.username, a.problem, sub.Language, "workspace", &sub.Code)
 			})
-			return
+			return true
 		}
 	}
 	a.status = "This submission language is unavailable in the editor."
 	a.errorStatus = true
+	return false
 }
 
-func submissionRow(c *ui.Context, columns []string, status ui.Color, header bool) {
+func submissionRow(c *ui.Context, columns []string, status ui.Color) {
 	t := c.Theme()
 	weights := []float32{1.5, 0.9, 0.65, 0.8, 0.85}
 	ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Center).Children(func() {
 		for i, value := range columns {
 			color := t.Text
-			fontSize := float32(13)
 			fontWeight := 400
-			if header {
-				color = t.TextMuted
-				fontSize = 12
-			} else if i == 0 {
+			if i == 0 {
 				color = status
 				fontWeight = 600
 			} else if i == 4 || value == "N/A" {
 				color = t.TextMuted
 			}
-			el := ui.Text(c, value).Width(0).Grow(weights[i]).SingleLine().FontSize(fontSize).FontWeight(fontWeight).TextColor(color)
+			el := ui.Text(c, value).Width(0).Grow(weights[i]).SingleLine().FontSize(13).FontWeight(fontWeight).TextColor(color)
 			attachTooltip(c, el, value, tipTop)
 			if i >= 2 {
 				el.TextAlign(ui.End)

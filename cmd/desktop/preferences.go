@@ -24,13 +24,12 @@ type preferences struct {
 	DescriptionSize, PageSize, EditorFontSize, EditorTabSize           int
 	Compact, Topics, HidePremium, HideAcceptance, HideDifficulty, Wrap bool
 	NoAutoClose                                                        bool `json:",omitempty"`
-	SidebarCollapsed, ProblemsCollapsed, WorkspaceCollapsed            bool
-	DailyCollapsed                                                     bool
+	SidebarCollapsed, ProblemsCollapsed                                bool
 	Split, EditorSplit                                                 float32
 }
 
 func (a *app) preferences() preferences {
-	return preferences{Version: 1, Site: a.site, Theme: a.appearance, Language: a.language, DockIcon: a.dockIconPref, OpenOnLaunch: a.openOnLaunch, LastProblemSlug: a.lastProblemSlug, NoRestoreSession: a.noRestoreSession, Contrast: a.contrast, DescriptionSize: a.descriptionSize, PageSize: a.perPage(), EditorFontSize: a.editorFontSize, EditorTabSize: a.editorTabSize, Compact: a.compact, Topics: a.showTopics, HidePremium: a.hidePremium, HideAcceptance: a.hideAcceptance, HideDifficulty: a.hideDifficulty, Wrap: a.code.SoftWrap, NoAutoClose: a.code.NoAutoClose, SidebarCollapsed: a.sidebarCollapsed, ProblemsCollapsed: a.sidebarCollapsed, WorkspaceCollapsed: a.sidebarCollapsed, DailyCollapsed: a.dailyCollapsed, Split: a.split, EditorSplit: a.editorSplit}
+	return preferences{Version: 1, Site: a.site, Theme: a.appearance, Language: a.language, DockIcon: a.dockIconPref, OpenOnLaunch: a.openOnLaunch, LastProblemSlug: a.lastProblemSlug, NoRestoreSession: a.noRestoreSession, Contrast: a.contrast, DescriptionSize: a.descriptionSize, PageSize: a.perPage(), EditorFontSize: a.editorFontSize, EditorTabSize: a.editorTabSize, Compact: a.compact, Topics: a.showTopics, HidePremium: a.hidePremium, HideAcceptance: a.hideAcceptance, HideDifficulty: a.hideDifficulty, Wrap: a.code.SoftWrap, NoAutoClose: a.code.NoAutoClose, SidebarCollapsed: a.sidebarCollapsed, ProblemsCollapsed: a.sidebarCollapsed, Split: a.split, EditorSplit: a.editorSplit}
 }
 func (a *app) readPreferences(path string) error {
 	data, err := os.ReadFile(path)
@@ -79,7 +78,6 @@ func (a *app) readPreferences(path string) error {
 	} else {
 		a.sidebarCollapsed = p.ProblemsCollapsed
 	}
-	a.dailyCollapsed = p.DailyCollapsed
 	a.split, a.editorSplit = p.Split, p.EditorSplit
 	return nil
 }

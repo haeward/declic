@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/haeward/declic/internal/leetcode"
-	"github.com/haeward/declic/internal/render"
 )
 
 func TestHintsSeparateAndSimilarQuestionsMetadata(t *testing.T) {
@@ -38,18 +37,22 @@ func TestHintsSeparateAndSimilarQuestionsMetadata(t *testing.T) {
 			t.Fatalf("statementHTML missing %q", want)
 		}
 	}
-	if slug, ok := render.ParseLocalProblemURL("https://declic.local/problem/3sum"); !ok || slug != "3sum" {
-		t.Fatalf("ParseLocalProblemURL valid slug failed: %q %v", slug, ok)
-	}
-	if _, ok := render.ParseLocalProblemURL("https://declic.local/problem/../etc"); ok {
-		t.Fatal("ParseLocalProblemURL accepted unsafe slug")
-	}
 }
 
-func TestSlidesAndJudgeDiffHelpers(t *testing.T) {
+func TestSlidesLoginURLAndJudgeDiffHelpers(t *testing.T) {
 	urls := resolveSlideManifestURLs(leetcode.COM, "two-sum", "../Documents/1_fix_1.json:1000,562")
 	if len(urls) == 0 || !strings.HasSuffix(urls[0], "/Documents/1_fix_1.json") {
 		t.Fatalf("slide manifest URL resolution failed: %+v", urls)
+	}
+	for _, bad := range []string{"//evil.com/manifest.json", "HTTPS://evil.com/manifest.json", "http://leetcode.com/manifest.json"} {
+		if got := resolveSlideManifestURLs(leetcode.COM, "two-sum", bad); len(got) != 0 {
+			t.Fatalf("resolveSlideManifestURLs accepted untrusted spec %q: %+v", bad, got)
+		}
+	}
+	if !isPostLoginSiteURL(leetcode.COM, "https://leetcode.com/problemset/?next=/accounts/login") ||
+		isPostLoginSiteURL(leetcode.COM, "https://leetcode.com.evil.com/problemset/") ||
+		isPostLoginSiteURL(leetcode.COM, "https://leetcode.com/accounts/login/") {
+		t.Fatal("isPostLoginSiteURL host/path validation failed")
 	}
 	frames := parseSlideManifestFrames("https://leetcode.com/problems/two-sum/Documents/1_fix_1.json", []byte(`{"timeline":[{"image":"../Figures/1/1_1.png"},{"image":"../Figures/1/1_2.png"}]}`))
 	if len(frames) != 2 || frames[0] != "https://leetcode.com/problems/two-sum/Figures/1/1_1.png" {

@@ -12,7 +12,7 @@ import (
 func TestEmptyWorkspace(t *testing.T) {
 	a := &app{code: &editor.State{Buffer: editor.NewBuffer("old draft")}, split: 480}
 	a.resetDocument(leetcode.COM)
-	a.selectAccount("verified-account")
+	a.selectIdentity("verified-account", "")
 	view := ui.NewTester(a.view, 1280, 900)
 	_ = view.Click("Code editor")
 	view.Type("cannot save this")

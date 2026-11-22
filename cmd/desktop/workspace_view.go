@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"strconv"
@@ -506,6 +507,12 @@ func (a *app) retrieveLastSubmittedCode() {
 	}
 	a.retrievingSub = true
 	site, user, slug, curLang := a.site, a.username, a.problem.Slug, a.language
+	supported := make(map[string]bool, len(a.problem.Snippets))
+	for _, sn := range a.problem.Snippets {
+		if workspace.Extension(sn.Language) != "" {
+			supported[sn.Language] = true
+		}
+	}
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
@@ -526,7 +533,7 @@ func (a *app) retrieveLastSubmittedCode() {
 				}
 				if picked == nil {
 					for i := range history {
-						if workspace.Extension(history[i].Language) != "" {
+						if supported[history[i].Language] {
 							sub := history[i]
 							picked = &sub
 							break
@@ -550,7 +557,7 @@ func (a *app) retrieveLastSubmittedCode() {
 			if err != nil {
 				a.status = err.Error()
 				a.errorStatus = true
-				if err == errSessionExpired {
+				if errors.Is(err, errSessionExpired) {
 					a.expireSession()
 				}
 				return
@@ -561,10 +568,11 @@ func (a *app) retrieveLastSubmittedCode() {
 				return
 			}
 			picked.Code = code
-			a.useSubmission(*picked)
-			a.changed = time.Now()
-			a.saveFailed = false
-			a.codeRetrievedUntil = time.Now().Add(1500 * time.Millisecond)
+			if a.useSubmission(*picked) {
+				a.changed = time.Now()
+				a.saveFailed = false
+				a.codeRetrievedUntil = time.Now().Add(1500 * time.Millisecond)
+			}
 		})
 	}()
 }

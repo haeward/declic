@@ -132,11 +132,11 @@ func hairlineColor(c *ui.Context) ui.Color {
 	return ui.Hex("#ececf1")
 }
 
-func dailyCardColors(c *ui.Context) (bg, border, dateBg, dateMonth, tagBg ui.Color) {
+func dailyCardColors(c *ui.Context) (bg, border ui.Color) {
 	if c.Theme().Dark {
-		return ui.Hex("#151c2a"), ui.Hex("#24334f"), ui.Hex("#1a1b1f"), ui.Hex("#ff7a70"), ui.Hex("#232c40")
+		return ui.Hex("#151c2a"), ui.Hex("#24334f")
 	}
-	return ui.Hex("#f5f8ff"), ui.Hex("#d9e1f7"), ui.Hex("#ffffff"), ui.Hex("#c0392b"), ui.Hex("#e8ebf3")
+	return ui.Hex("#f5f8ff"), ui.Hex("#d9e1f7")
 }
 
 func dailyCardHoverColors(c *ui.Context) (bg, border ui.Color) {

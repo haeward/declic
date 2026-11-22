@@ -146,6 +146,10 @@ func (a *app) clearPublicCachesAsync() {
 				a.storageNotice = "Could not clear caches: " + err.Error()
 			} else {
 				a.detailCache = nil
+				a.resourceCache = nil
+				a.slideDecks = nil
+				a.linkedImages = nil
+				a.playgrounds = nil
 				imageCacheMu.Lock()
 				clear(imageCache)
 				imageCacheMu.Unlock()
