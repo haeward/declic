@@ -31,6 +31,7 @@ jobs:
   govulncheck:
     name: Go vulnerability check
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -41,5 +42,16 @@ jobs:
           go-version-file: go.mod
           check-latest: true
 
-      - name: Run govulncheck
-        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+
+      - name: Run govulncheck across target platforms
+        shell: bash
+        run: |
+          gobin="$(go env GOBIN)"
+          if [ -z "$gobin" ]; then
+            gobin="$(go env GOPATH)/bin"
+          fi
+          "$gobin/govulncheck" ./...
+          GOOS=darwin GOARCH=arm64 "$gobin/govulncheck" ./...
+          GOOS=windows GOARCH=amd64 "$gobin/govulncheck" ./...
