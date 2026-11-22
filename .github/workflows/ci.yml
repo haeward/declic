@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  checks:
+    name: Checks (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-26]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          check-latest: true
+
+      - name: Check gofmt formatting
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "The following Go files are not formatted with gofmt:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Run offline tests with race detector
+        run: go test -race -count=1 ./...
+
+      - name: Run go vet
+        run: go vet ./...
+
+      - name: Run mygo vet
+        run: go tool mygo vet .
+
+      - name: Verify cross-platform compilation
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          GOOS=darwin GOARCH=arm64 go build ./...
+          GOOS=darwin GOARCH=amd64 go build ./...
+          GOOS=linux GOARCH=amd64 go build ./...
+          GOOS=windows GOARCH=amd64 go build ./...
+
+      - name: Verify macOS app bundle packaging
+        if: matrix.os == 'macos-26'
+        run: go tool mygo build -platform darwin/arm64 -skip-dmg

@@ -1,0 +1,182 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Build macOS DMGs and upload workflow artifacts without creating a GitHub Release
+        type: boolean
+        default: true
+      prerelease:
+        description: Mark the draft GitHub Release as a pre-release (ignored during dry run)
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release-macos:
+    name: Build & Draft macOS Release
+    runs-on: macos-26
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          check-latest: true
+
+      - name: Resolve version and validate tag
+        id: meta
+        run: |
+          version="$(jq -r '.version' mygo.json)"
+          slug="$(jq -r '.slug // (.name | ascii_downcase)' mygo.json)"
+          if [ -z "$version" ] || [ "$version" = "null" ]; then
+            echo "Missing version in mygo.json"
+            exit 1
+          fi
+
+          if [ "${{ github.event_name }}" = "push" ]; then
+            tag="${GITHUB_REF_NAME}"
+            if [ "$tag" != "v${version}" ]; then
+              echo "Tag ${tag} does not match mygo.json version v${version}"
+              exit 1
+            fi
+            if [[ "$tag" == v0.* ]] || [[ "$tag" == *-* ]]; then
+              prerelease="true"
+            else
+              prerelease="false"
+            fi
+          else
+            tag="v${version}"
+            prerelease="${{ inputs.prerelease }}"
+          fi
+
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "slug=${slug}" >> "$GITHUB_OUTPUT"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "prerelease=${prerelease}" >> "$GITHUB_OUTPUT"
+
+      - name: Verify formatting, tests, and static checks
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "Unformatted Go files:"
+            echo "$unformatted"
+            exit 1
+          fi
+          go test -race -count=1 ./...
+          go vet ./...
+          go tool mygo vet .
+          GOOS=linux GOARCH=amd64 go build ./...
+          GOOS=windows GOARCH=amd64 go build ./...
+
+      - name: Build macOS dual-architecture DMGs
+        run: go tool mygo build -platform darwin/arm64,darwin/amd64
+
+      - name: Collect release artifacts and checksums
+        env:
+          SLUG: ${{ steps.meta.outputs.slug }}
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          rm -rf dist
+          mkdir -p dist
+          arm64_dmg="build/darwin-arm64/${SLUG}-${VERSION}-arm64.dmg"
+          amd64_dmg="build/darwin-amd64/${SLUG}-${VERSION}-amd64.dmg"
+          test -s "$arm64_dmg"
+          test -s "$amd64_dmg"
+          cp "$arm64_dmg" "$amd64_dmg" dist/
+          (cd dist && shasum -a 256 "${SLUG}-${VERSION}-arm64.dmg" "${SLUG}-${VERSION}-amd64.dmg" > SHA256SUMS.txt)
+          cat dist/SHA256SUMS.txt
+
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: declic-${{ steps.meta.outputs.tag }}-macos
+          path: dist/*
+          retention-days: 14
+
+      - name: Create or update draft GitHub Release
+        if: github.event_name == 'push' || inputs.dry_run == false
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.meta.outputs.tag }}
+          VERSION: ${{ steps.meta.outputs.version }}
+          SLUG: ${{ steps.meta.outputs.slug }}
+          PRERELEASE: ${{ steps.meta.outputs.prerelease }}
+        run: |
+          changelog_section=""
+          if [ -f CHANGELOG.md ]; then
+            changelog_section="$(awk -v ver="$VERSION" '
+              index($0, "## [" ver "]") == 1 { in_sec = 1; next }
+              in_sec && /^## \[/ { exit }
+              in_sec && /^\[.*\]: https?:\/\// { exit }
+              in_sec { print }
+            ' CHANGELOG.md | sed -e '/./,$!d')"
+          fi
+
+          {
+            cat <<EOF
+          > [!IMPORTANT]
+          > **Early Preview (\`${TAG}\`)** — Declic is a third-party, open-source desktop client for \`leetcode.com\` and \`leetcode.cn\`, not affiliated with or endorsed by LeetCode.
+          EOF
+
+            if [ -n "$changelog_section" ]; then
+              printf '\n%s\n' "$changelog_section"
+            fi
+
+            cat <<EOF
+
+          ### Downloads (macOS 14.0+)
+
+          | Package | Architecture |
+          | --- | --- |
+          | \`${SLUG}-${VERSION}-arm64.dmg\` | Apple Silicon (M1 / M2 / M3 / M4) |
+          | \`${SLUG}-${VERSION}-amd64.dmg\` | Intel Mac (\`x86_64\`) |
+          | \`SHA256SUMS.txt\` | SHA-256 checksums for all artifacts |
+
+          ### macOS Gatekeeper Notice (Ad-hoc Signed)
+
+          This preview build is ad-hoc signed and **not notarized** with an Apple Developer ID certificate. If macOS reports that the app cannot be verified or appears damaged after dragging \`Declic.app\` into \`/Applications\`, clear the quarantine attribute once in Terminal:
+
+          \`\`\`sh
+          xattr -dr com.apple.quarantine /Applications/Declic.app
+          \`\`\`
+
+          You can verify download integrity before opening:
+
+          \`\`\`sh
+          shasum -a 256 -c SHA256SUMS.txt
+          \`\`\`
+
+          Windows and Linux prebuilt packages are planned for a future release after native runtime validation.
+          EOF
+          } > release-notes.md
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber
+          else
+            flags=(--draft --title "Declic ${TAG}" --notes-file release-notes.md)
+            if [ -z "$changelog_section" ]; then
+              flags+=(--generate-notes)
+            fi
+            if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+              flags+=(--target "$GITHUB_SHA")
+            fi
+            if [ "$PRERELEASE" = "true" ]; then
+              flags+=(--prerelease)
+            fi
+            gh release create "$TAG" dist/* "${flags[@]}"
+          fi
