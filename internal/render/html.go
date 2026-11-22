@@ -40,7 +40,7 @@ func ParseLocalProblemURL(raw string) (string, bool) {
 // IsDirectVideoURL reports whether raw is an HTTPS direct video stream URL.
 func IsDirectVideoURL(raw string) bool {
 	u, err := url.Parse(strings.TrimSpace(raw))
-	if err != nil || u.Scheme != "https" {
+	if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil {
 		return false
 	}
 	low := strings.ToLower(u.Path)
@@ -49,12 +49,6 @@ func IsDirectVideoURL(raw string) bool {
 
 // IsTrustedVideoHost reports whether raw points to an allowlisted HTTPS video host.
 func IsTrustedVideoHost(raw string) bool {
-	return isTrustedVideoHost(raw)
-}
-
-func isDirectVideoURL(raw string) bool { return IsDirectVideoURL(raw) }
-
-func isTrustedVideoHost(raw string) bool {
 	cleaned := strings.TrimSpace(raw)
 	if strings.HasPrefix(cleaned, "//") {
 		cleaned = "https:" + cleaned
@@ -341,7 +335,7 @@ func sanitizeHTMLWithTOC(source string) (string, []tocHeading) {
 					}
 				}
 			}
-			if isTrustedVideoHost(src) {
+			if IsTrustedVideoHost(src) {
 				card := &xhtml.Node{Type: xhtml.ElementNode, Data: "a", Attr: []xhtml.Attribute{
 					{Key: "class", Val: "video-card"},
 					{Key: "href", Val: LocalVideoSentinel},
@@ -351,7 +345,8 @@ func sanitizeHTMLWithTOC(source string) (string, []tocHeading) {
 			}
 			return
 		}
-		if node.Data == "script" || node.Data == "style" || node.Data == "annotation-xml" || node.Data == "annotation" {
+		switch node.Data {
+		case "script", "style", "noscript", "template", "svg", "title", "textarea", "object", "embed", "noembed", "noframes", "annotation-xml", "annotation":
 			return
 		}
 		nextInCodeOrMath := inCodeOrMath
@@ -361,16 +356,21 @@ func sanitizeHTMLWithTOC(source string) (string, []tocHeading) {
 			}
 			clean := &xhtml.Node{Type: xhtml.ElementNode, Data: node.Data}
 			if node.Data == "img" {
+				hasSrc := false
 				for _, attr := range node.Attr {
 					if attr.Key == "src" {
 						u, err := url.Parse(attr.Val)
 						if err == nil && u.Scheme == "https" && u.Host != "" && u.User == nil {
 							clean.Attr = append(clean.Attr, attr)
+							hasSrc = true
 						}
 					}
 					if attr.Key == "alt" && len(attr.Val) <= 200 {
 						clean.Attr = append(clean.Attr, attr)
 					}
+				}
+				if !hasSrc {
+					return
 				}
 			}
 			if node.Data == "h2" || node.Data == "h3" {
@@ -441,11 +441,15 @@ func DescriptionWithAppearance(title, source, appearance string) string {
 	if appearance == "Light" {
 		theme = "light"
 	}
+	heading := ""
+	if title != "" {
+		heading = `<h1>` + html.EscapeString(title) + `</h1>`
+	}
 	return `<!doctype html><html data-theme="` + theme + `"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src https:; style-src 'unsafe-inline'"><style>
- :root{color-scheme:light;--bg:#ffffff;--text:#1d1d1f;--title:#1d1d1f;--muted:#6b6b73;--line:#ececf1;--code:#f5f5f8;--code-bar:#d6ddf0;--hover:#f6f7fb;--accent:#0a4fc0;--easy-fg:#0b7a6b;--easy-bg:#e0f5f0;--med-fg:#8a5200;--med-bg:#fff0d2;--hard-fg:#b3261e;--hard-bg:#fde8e8;--pm-fg:#5b3fd0;--pm-bg:#efeaff;--img-bg:transparent;--img-pad:0}
- @media(prefers-color-scheme:dark){:root{color-scheme:dark;--bg:#1a1b1f;--text:#c9cad0;--title:#e9e9ec;--muted:#8c8d95;--line:#262830;--code:#141519;--code-bar:#2f3a52;--hover:#22242a;--accent:#6ea6ff;--easy-fg:#4cc38a;--easy-bg:#12382d;--med-fg:#f5b942;--med-bg:#3a2b10;--hard-fg:#ff7a70;--hard-bg:#3d1c1d;--pm-fg:#b89dff;--pm-bg:#2a2244;--img-bg:#f4f5f8;--img-pad:10px}}
- :root[data-theme=dark]{color-scheme:dark;--bg:#1a1b1f;--text:#c9cad0;--title:#e9e9ec;--muted:#8c8d95;--line:#262830;--code:#141519;--code-bar:#2f3a52;--hover:#22242a;--accent:#6ea6ff;--easy-fg:#4cc38a;--easy-bg:#12382d;--med-fg:#f5b942;--med-bg:#3a2b10;--hard-fg:#ff7a70;--hard-bg:#3d1c1d;--pm-fg:#b89dff;--pm-bg:#2a2244;--img-bg:#f4f5f8;--img-pad:10px}
- :root[data-theme=light]{color-scheme:light;--bg:#ffffff;--text:#1d1d1f;--title:#1d1d1f;--muted:#6b6b73;--line:#ececf1;--code:#f5f5f8;--code-bar:#d6ddf0;--hover:#f6f7fb;--accent:#0a4fc0;--easy-fg:#0b7a6b;--easy-bg:#e0f5f0;--med-fg:#8a5200;--med-bg:#fff0d2;--hard-fg:#b3261e;--hard-bg:#fde8e8;--pm-fg:#5b3fd0;--pm-bg:#efeaff;--img-bg:transparent;--img-pad:0}
+ :root{color-scheme:light;--bg:#ffffff;--text:#1d1d1f;--title:#1d1d1f;--muted:#6b6b73;--line:#ececf1;--code:#f5f5f8;--hover:#f6f7fb;--accent:#0a4fc0;--easy-fg:#0b7a6b;--easy-bg:#e0f5f0;--med-fg:#8a5200;--med-bg:#fff0d2;--hard-fg:#b3261e;--hard-bg:#fde8e8;--pm-fg:#5b3fd0;--pm-bg:#efeaff;--img-bg:transparent;--img-pad:0}
+ @media(prefers-color-scheme:dark){:root{color-scheme:dark;--bg:#1a1b1f;--text:#c9cad0;--title:#e9e9ec;--muted:#8c8d95;--line:#262830;--code:#141519;--hover:#22242a;--accent:#6ea6ff;--easy-fg:#4cc38a;--easy-bg:#12382d;--med-fg:#f5b942;--med-bg:#3a2b10;--hard-fg:#ff7a70;--hard-bg:#3d1c1d;--pm-fg:#b89dff;--pm-bg:#2a2244;--img-bg:#f4f5f8;--img-pad:10px}}
+ :root[data-theme=dark]{color-scheme:dark;--bg:#1a1b1f;--text:#c9cad0;--title:#e9e9ec;--muted:#8c8d95;--line:#262830;--code:#141519;--hover:#22242a;--accent:#6ea6ff;--easy-fg:#4cc38a;--easy-bg:#12382d;--med-fg:#f5b942;--med-bg:#3a2b10;--hard-fg:#ff7a70;--hard-bg:#3d1c1d;--pm-fg:#b89dff;--pm-bg:#2a2244;--img-bg:#f4f5f8;--img-pad:10px}
+ :root[data-theme=light]{color-scheme:light;--bg:#ffffff;--text:#1d1d1f;--title:#1d1d1f;--muted:#6b6b73;--line:#ececf1;--code:#f5f5f8;--hover:#f6f7fb;--accent:#0a4fc0;--easy-fg:#0b7a6b;--easy-bg:#e0f5f0;--med-fg:#8a5200;--med-bg:#fff0d2;--hard-fg:#b3261e;--hard-bg:#fde8e8;--pm-fg:#5b3fd0;--pm-bg:#efeaff;--img-bg:transparent;--img-pad:0}
  *{box-sizing:border-box}html{scroll-behavior:smooth}html,body{scrollbar-width:none}::-webkit-scrollbar{display:none}
  body{margin:0;padding:8px 22px 28px;font:14px/1.66 -apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;background:var(--bg);color:var(--text);overflow-wrap:anywhere}
  h1{font-size:1.48em;font-weight:700;line-height:1.28;color:var(--title);margin:0 0 14px;letter-spacing:-.3px}
@@ -497,5 +501,5 @@ func DescriptionWithAppearance(title, source, appearance string) string {
  .pill-med{color:var(--med-fg);background:var(--med-bg)}
  .pill-hard{color:var(--hard-fg);background:var(--hard-bg)}
  .pill-pm{color:var(--pm-fg);background:var(--pm-bg);font-size:11px}
- </style></head><body><h1>` + html.EscapeString(title) + `</h1>` + toc.String() + body + `</body></html>`
+ </style></head><body>` + heading + toc.String() + body + `</body></html>`
 }
