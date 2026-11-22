@@ -86,3 +86,35 @@ func TestVideoCardRendersPure16By9Window(t *testing.T) {
 		t.Fatalf("expected 16:9 video height ~360 at width 640, got Y=%.1f (ok=%v)", after.Y, ok)
 	}
 }
+
+func TestCNWorkspaceHidesEditorialAndRendersCNVideoPlayer(t *testing.T) {
+	a, _ := testWorkspace(t)
+	a.site = leetcode.CN
+	a.resourceTab = "Editorial"
+	v := ui.NewTester(a.view, 1360, 860)
+	v.Frame()
+	if _, ok := v.Find("Editorial"); ok {
+		t.Fatal("leetcode.cn workspace should hide Editorial tab")
+	}
+	if a.resourceTab != "Description" {
+		t.Fatalf("leetcode.cn should fall back from Editorial to Description, got %q", a.resourceTab)
+	}
+
+	info := leetcode.CNVideoInfo{
+		VideoID:  "vid123",
+		PlayAuth: "tok</script>abc",
+		CoverURL: "https://video.leetcode.cn/cover.png",
+		CanSee:   true,
+	}
+	prewarm := buildCNVideoPlayerHTML(info, false)
+	if !strings.Contains(prewarm, "aliplayer-min.js") || !strings.Contains(prewarm, "encryptType:1") || strings.Contains(prewarm, "tok</script>abc") {
+		t.Fatalf("unexpected CN video player HTML: %s", prewarm)
+	}
+	if !strings.Contains(prewarm, `"autoplay":false`) || !strings.Contains(prewarm, "window.__declicPlay") || !strings.Contains(prewarm, "declic:playing") || !strings.Contains(prewarm, ".prism-controlbar-bg{background:rgba(20,22,26,.88)!important") {
+		t.Fatalf("prewarm CN video HTML missing autoplay=false, playback hooks, or dark controlbar contrast: %s", prewarm)
+	}
+	auto := buildCNVideoPlayerHTML(info, true)
+	if !strings.Contains(auto, `"autoplay":true`) {
+		t.Fatalf("autoplay CN video HTML missing autoplay=true: %s", auto)
+	}
+}

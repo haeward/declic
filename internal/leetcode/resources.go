@@ -4,9 +4,12 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 )
+
+var cnVideoUUID = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
 type Article struct {
 	Title   string `json:"title"`
@@ -113,6 +116,47 @@ func (c *Client) PlaygroundCodes(ctx context.Context, uuid string) ([]Snippet, e
 		return nil, err
 	}
 	return r.Codes, nil
+}
+
+// CNVideoInfo holds metadata and ephemeral playback authorization for a leetcode.cn solution video.
+type CNVideoInfo struct {
+	VideoID  string
+	CoverURL string
+	PlayAuth string
+	CanSee   bool
+}
+
+// CNVideoInfo resolves a leetcode.cn solution video UUID into its cover image and Aliyun VOD PlayAuth.
+func (c *Client) CNVideoInfo(ctx context.Context, uuid string, cookies []*http.Cookie) (CNVideoInfo, error) {
+	if c.Site != CN || !cnVideoUUID.MatchString(uuid) {
+		return CNVideoInfo{}, fmt.Errorf("invalid video reference")
+	}
+	var r struct {
+		Info *struct {
+			PlayAuth  string `json:"playAuth"`
+			CanSee    bool   `json:"canSee"`
+			VideoInfo *struct {
+				VideoID  string `json:"videoId"`
+				CoverURL string `json:"coverUrl"`
+			} `json:"videoInfo"`
+		} `json:"videosVideoInfo"`
+	}
+	query := `query videoInfo($uuid:UUID!){videosVideoInfo(uuid:$uuid,fetchType:PLAY_AUTH){playAuth canSee videoInfo{videoId coverUrl}}}`
+	if err := c.query(ctx, query, map[string]any{"uuid": uuid}, cookies, &r); err != nil {
+		return CNVideoInfo{}, err
+	}
+	if r.Info == nil {
+		return CNVideoInfo{}, fmt.Errorf("missing video info")
+	}
+	out := CNVideoInfo{
+		PlayAuth: strings.TrimSpace(r.Info.PlayAuth),
+		CanSee:   r.Info.CanSee,
+	}
+	if r.Info.VideoInfo != nil {
+		out.VideoID = strings.TrimSpace(r.Info.VideoInfo.VideoID)
+		out.CoverURL = normalizeSiteAssetURL(CN, r.Info.VideoInfo.CoverURL)
+	}
+	return out, nil
 }
 
 // Solved reads the signed-in viewer's public problem metadata and solve flags.

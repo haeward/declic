@@ -56,17 +56,23 @@ func (a *app) descriptionView(c *ui.Context, rightBorder bool) {
 		col.BorderWidth(0, 1, 0, 0).BorderColor(hairlineColor(c))
 	}
 	col.Children(func() {
+		if a.site == leetcode.CN && a.resourceTab == "Editorial" {
+			a.resourceTab = "Description"
+		}
 		ui.Row(c).FillWidth().Height(44).Shrink(0).Padding(0, 22).Gap(18).BorderWidth(0, 0, 1, 0).BorderColor(hairlineColor(c)).Children(func() {
-			tabs := []struct {
+			type tabSpec struct {
 				name string
 				icon *ui.SVG
 				tint ui.Color
-			}{
-				{"Description", iconDescription, t.Accent},
-				{"Editorial", iconEditorial, ui.Hex("#d97706")},
-				{"Solutions", iconSolutions, ui.Hex("#0284c7")},
-				{"Submissions", iconSubmissions, t.Accent},
 			}
+			tabs := []tabSpec{{"Description", iconDescription, t.Accent}}
+			if a.site != leetcode.CN {
+				tabs = append(tabs, tabSpec{"Editorial", iconEditorial, ui.Hex("#d97706")})
+			}
+			tabs = append(tabs,
+				tabSpec{"Solutions", iconSolutions, ui.Hex("#0284c7")},
+				tabSpec{"Submissions", iconSubmissions, t.Accent},
+			)
 			for _, tab := range tabs {
 				selected := a.resourceTab == tab.name || (a.resourceTab == "" && tab.name == "Description")
 				name := tab.name

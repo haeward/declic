@@ -147,6 +147,10 @@ func TestRichMediaMathAndMermaid(t *testing.T) {
 	if strings.Contains(paidVidMD, "Video Solution") || !strings.Contains(paidVidMD, "## Solution Article") {
 		t.Fatalf("expected empty Video Solution section to be hidden:\n%s", paidVidMD)
 	}
+	cnVidMD, _, _ := PreprocessArticleMarkdown("### 📺 视频题解\n![1.两数之和.mp4](4547de8a-5963-4caf-9281-c22ee751ab12)\n")
+	if !strings.Contains(cnVidMD, "```declic-cn-video\n4547de8a-5963-4caf-9281-c22ee751ab12\n```") {
+		t.Fatalf("expected leetcode.cn UUID video fence:\n%s", cnVidMD)
+	}
 }
 
 func TestRenderSecurityAndEdgeCases(t *testing.T) {

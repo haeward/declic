@@ -110,6 +110,37 @@ func TestViewerProfileEnrichmentAndPlaygroundCodes(t *testing.T) {
 	}
 }
 
+func TestCNVideoInfo(t *testing.T) {
+	cn := New(CN)
+	cn.HTTP.Transport = roundTrip(func(r *http.Request) (*http.Response, error) {
+		var req struct {
+			Query     string         `json:"query"`
+			Variables map[string]any `json:"variables"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(req.Query, "videosVideoInfo") || req.Variables["uuid"] != "4547de8a-5963-4caf-9281-c22ee751ab12" {
+			t.Fatalf("unexpected query/vars: %+v", req)
+		}
+		body := `{"data":{"videosVideoInfo":{"playAuth":"auth-token","canSee":true,"videoInfo":{"videoId":"vid123","coverUrl":"http://video.leetcode.cn/cover.jpg?auth_key=abc"}}}}`
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
+	})
+	info, err := cn.CNVideoInfo(context.Background(), "4547de8a-5963-4caf-9281-c22ee751ab12", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.VideoID != "vid123" || info.PlayAuth != "auth-token" || !info.CanSee || info.CoverURL != "https://video.leetcode.cn/cover.jpg?auth_key=abc" {
+		t.Fatalf("unexpected CNVideoInfo: %+v", info)
+	}
+	if _, err := cn.CNVideoInfo(context.Background(), "../bad", nil); err == nil {
+		t.Fatal("expected invalid UUID error")
+	}
+	if _, err := New(COM).CNVideoInfo(context.Background(), "4547de8a-5963-4caf-9281-c22ee751ab12", nil); err == nil {
+		t.Fatal("expected CNVideoInfo to reject leetcode.com")
+	}
+}
+
 // Opt-in integration checks use guest requests and never submit code.
 func TestLiveGuest(t *testing.T) {
 	if os.Getenv("DECLIC_LIVE_API") != "1" {

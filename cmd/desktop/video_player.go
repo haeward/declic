@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"html"
+	"net/http"
 	"net/url"
 	"regexp"
 	"sort"
@@ -11,6 +13,7 @@ import (
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
+	"github.com/haeward/declic/internal/leetcode"
 	"github.com/haeward/declic/internal/render"
 )
 
@@ -18,6 +21,17 @@ type linkedImageState struct {
 	loading bool
 	loaded  bool
 	bitmap  *ui.Bitmap
+}
+
+type cnVideoState struct {
+	loading     bool
+	loaded      bool
+	failed      bool
+	playing     bool
+	playerReady bool
+	fetchedAt   time.Time
+	info        leetcode.CNVideoInfo
+	cover       *ui.Bitmap
 }
 
 var (
@@ -53,13 +67,24 @@ func (a *app) stopInlineVideo() {
 		}
 		delete(a.inlineVideos, k)
 	}
+	for _, st := range a.cnVideos {
+		if st != nil {
+			st.playing = false
+			st.playerReady = false
+		}
+	}
 }
 
 // pauseInlineVideos pauses and mutes active playback when switching tabs within
 // the same problem, keeping loaded WebViews alive so switching between Editorial
 // and Solutions never reloads videos.
 func (a *app) pauseInlineVideos() {
-	const pauseJS = `(function(){var v=document.querySelector('video');if(v&&!v.paused)v.pause();var f=document.getElementById('p');if(f&&f.contentWindow){f.contentWindow.postMessage('{"method":"pause"}','https://player.vimeo.com');f.contentWindow.postMessage('{"event":"command","func":"pauseVideo","args":""}','https://www.youtube-nocookie.com');}})()`
+	const pauseJS = `(function(){window.__wantPlay=false;if(window.__declicPause)window.__declicPause();if(window.__aliPlayer&&window.__aliPlayer.pause)window.__aliPlayer.pause();var v=document.querySelector('video');if(v&&!v.paused)v.pause();var f=document.getElementById('p');if(f&&f.contentWindow){f.contentWindow.postMessage('{"method":"pause"}','https://player.vimeo.com');f.contentWindow.postMessage('{"event":"command","func":"pauseVideo","args":""}','https://www.youtube-nocookie.com');}})()`
+	for _, st := range a.cnVideos {
+		if st != nil && st.playing && !st.playerReady {
+			st.playing = false
+		}
+	}
 	for k, v := range a.inlineVideos {
 		if v == nil || v.IsDestroyed() {
 			delete(a.inlineVideos, k)
@@ -137,6 +162,11 @@ func (a *app) renderPrewarmedVideos(c *ui.Context) {
 			for _, u := range s.cleanedVideos {
 				active[u] = true
 			}
+			for uuid, st := range a.cnVideos {
+				if st != nil && st.playing && st.playerReady && strings.Contains(s.cleanedMD, uuid) {
+					active["cn:"+uuid] = true
+				}
+			}
 		}
 	}
 	keys := make([]string, 0, len(a.inlineVideos))
@@ -178,6 +208,253 @@ func (a *app) renderVideoSolutionCard(c *ui.Context, videoURL string) {
 			ui.Text(c, "Loading video…").FontSize(12).TextColor(ui.Hex("#b8bcc8"))
 		})
 	})
+}
+
+func (a *app) ensureCNVideo(uuid string, forceRefresh bool) *cnVideoState {
+	if a.cnVideos == nil {
+		a.cnVideos = map[string]*cnVideoState{}
+	}
+	st := a.cnVideos[uuid]
+	if st == nil {
+		st = &cnVideoState{}
+		a.cnVideos[uuid] = st
+	}
+	needFetch := !st.loading && (!st.loaded || forceRefresh)
+	if needFetch && a.post != nil {
+		st.loading = true
+		site, user := a.site, a.username
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+			defer cancel()
+			client := leetcode.New(leetcode.CN)
+			var cookies []*http.Cookie
+			if user != "" && site == leetcode.CN {
+				cookies, _, _ = verifiedCookiesCached(ctx, client, user)
+			}
+			info, err := client.CNVideoInfo(ctx, uuid, cookies)
+			var cover *ui.Bitmap
+			if err == nil && info.CoverURL != "" && st.cover == nil {
+				cover, _ = fetchSafeBitmap(info.CoverURL)
+			}
+			a.post(func() {
+				if a.closed || a.site != site {
+					return
+				}
+				st.loading = false
+				st.loaded = true
+				if err != nil {
+					st.playing = false
+					st.playerReady = false
+					st.failed = true
+					return
+				}
+				st.failed = false
+				st.info = info
+				st.fetchedAt = time.Now()
+				if cover != nil {
+					st.cover = cover
+				}
+				if info.CanSee && info.VideoID != "" && info.PlayAuth != "" {
+					a.ensureCNVideoPlayer(uuid, info, forceRefresh, st.playing)
+				}
+			})
+		}()
+	}
+	return st
+}
+
+func startCNVideoPlayback(v *mygo.WebView) {
+	if v == nil || v.IsDestroyed() {
+		return
+	}
+	page := v.Page()
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_, _ = page.EvalContext(ctx, `(function(){window.__wantPlay=true;if(window.__declicPlay)window.__declicPlay();})()`)
+	}()
+}
+
+func (a *app) ensureCNVideoPlayer(uuid string, info leetcode.CNVideoInfo, reload, autoplay bool) *mygo.WebView {
+	if a.win == nil || a.closed || info.VideoID == "" || info.PlayAuth == "" {
+		return nil
+	}
+	key := "cn:" + uuid
+	if a.inlineVideos == nil {
+		a.inlineVideos = map[string]*mygo.WebView{}
+	}
+	if v := a.inlineVideos[key]; v != nil && !v.IsDestroyed() {
+		if reload {
+			if st := a.cnVideos[uuid]; st != nil {
+				st.playerReady = false
+			}
+			v.Page().SetAudioMuted(!autoplay)
+			v.Page().LoadHTML(buildCNVideoPlayerHTML(info, autoplay), leetcode.CN.URL()+"/")
+		} else if autoplay {
+			v.Page().SetAudioMuted(false)
+			startCNVideoPlayback(v)
+		}
+		return v
+	}
+	if len(a.inlineVideos) >= 6 {
+		for k, old := range a.inlineVideos {
+			if old != nil {
+				old.Destroy()
+			}
+			delete(a.inlineVideos, k)
+			break
+		}
+	}
+	if a.videoSession == nil {
+		a.videoSession = mygo.NewEphemeralSession()
+	}
+	v, err := a.win.NewWebView(mygo.WebViewOptions{
+		Page: mygo.PageOptions{
+			Session:              a.videoSession,
+			Untrusted:            true,
+			Autoplay:             mygo.AutoplayAllow,
+			BackgroundThrottling: mygo.ThrottlingOff,
+		},
+	})
+	if err != nil {
+		return nil
+	}
+	_ = v.SetBackgroundColor("#0c0e12")
+	v.Page().SetAudioMuted(!autoplay)
+	v.Page().OnWillNavigate(func(e *mygo.NavigateEvent) {
+		if e.URL != "" && e.URL != "about:blank" && !render.IsTrustedVideoHost(e.URL) && !render.IsDirectVideoURL(e.URL) {
+			e.PreventDefault()
+		}
+	})
+	v.Page().OnPageTitleUpdated(func(e *mygo.TitleEvent) {
+		e.PreventDefault()
+		if !strings.HasPrefix(e.Title, "declic:playing") && !strings.HasPrefix(e.Title, "declic:ready") && !strings.HasPrefix(e.Title, "declic:error") {
+			return
+		}
+		if a.post == nil {
+			return
+		}
+		a.post(func() {
+			if a.closed {
+				return
+			}
+			if cur := a.cnVideos[uuid]; cur != nil && cur.playing && !cur.playerReady {
+				cur.playerReady = true
+			}
+		})
+	})
+	v.Page().OnDOMReady(func() {
+		if a.post == nil {
+			return
+		}
+		a.post(func() {
+			if a.closed {
+				return
+			}
+			if cur := a.cnVideos[uuid]; cur != nil && cur.playing && !cur.playerReady {
+				if v.Page().IsAudioMuted() {
+					v.Page().SetAudioMuted(false)
+				}
+				startCNVideoPlayback(v)
+			}
+		})
+	})
+	v.Page().LoadHTML(buildCNVideoPlayerHTML(info, autoplay), leetcode.CN.URL()+"/")
+	a.inlineVideos[key] = v
+	return v
+}
+
+func (a *app) renderCNVideoCard(c *ui.Context, uuid string) {
+	st := a.ensureCNVideo(uuid, false)
+	if st.loaded && !st.failed && !st.info.CanSee {
+		ui.Box(c.Key("cn-video-lock-" + uuid)).FillWidth().AspectRatio(16.0 / 9.0).Radius(12).Background(ui.Hex("#0c0e12")).Center().Children(func() {
+			ui.Column(c).Center().Gap(8).Children(func() {
+				ui.Icon(c, iconLock).FontSize(22).TextColor(ui.Hex("#f5b942"))
+				ui.Text(c, "Members-only video").FontSize(12.5).TextColor(ui.Hex("#b8bcc8"))
+			})
+		})
+		return
+	}
+	if st.playing && st.playerReady {
+		if v := a.inlineVideos["cn:"+uuid]; v != nil && !v.IsDestroyed() {
+			if v.Page().IsAudioMuted() {
+				v.Page().SetAudioMuted(false)
+			}
+			ui.Box(c.Key("cn-video-frame-"+uuid)).FillWidth().AspectRatio(16.0/9.0).Radius(12).Border(1, hairlineColor(c)).Padding(1).Clip().Children(func() {
+				ui.WebView(c.Key("cn-video-view-"+uuid), v).Fill().Radius(11)
+			})
+			return
+		}
+	}
+	btn := ui.ButtonBase(c.Key("cn-video-cover-"+uuid)).Label("Play video").FillWidth().AspectRatio(16.0/9.0).Radius(12).Background(ui.Hex("#0c0e12")).Border(1, hairlineColor(c)).Clip()
+	hovered := btn.Hovered()
+	btn.Children(func() {
+		ui.Box(c).Fill().Center().Children(func() {
+			if st.cover != nil {
+				ui.Image(c, st.cover).Absolute().Top(0).Left(0).Fill().Fit(ui.Cover)
+			}
+			if !st.loaded {
+				ui.Text(c, "Loading video…").FontSize(12).TextColor(ui.Hex("#b8bcc8"))
+				return
+			}
+			if st.failed || st.info.VideoID == "" {
+				ui.Text(c, "Video unavailable").FontSize(12).TextColor(ui.Hex("#b8bcc8"))
+				return
+			}
+			if st.playing {
+				ui.Box(c).Padding(7, 14).Radius(999).Background(ui.RGBA(0, 0, 0, .68)).Border(1, ui.RGBA(1, 1, 1, .22)).Children(func() {
+					ui.Text(c, "Loading video…").FontSize(12).TextColor(ui.Hex("#ffffff"))
+				})
+				return
+			}
+			ringBg := ui.RGBA(0, 0, 0, .58)
+			if hovered {
+				ringBg = ui.RGBA(0, 0, 0, .74)
+			}
+			ui.Box(c).Size(54, 54).Radius(27).Background(ringBg).Border(1.5, ui.RGBA(1, 1, 1, .35)).Center().Children(func() {
+				ui.Icon(c, iconPlay).FontSize(22).TextColor(ui.Hex("#ffffff")).Margin(0, 0, 0, 2)
+			})
+		})
+	}).OnClick(func() {
+		if !st.loaded || st.failed || !st.info.CanSee || st.playing {
+			return
+		}
+		st.playing = true
+		if time.Since(st.fetchedAt) > 90*time.Second || st.info.PlayAuth == "" {
+			st.playerReady = false
+			a.ensureCNVideo(uuid, true)
+			return
+		}
+		a.ensureCNVideoPlayer(uuid, st.info, false, true)
+	})
+}
+
+func buildCNVideoPlayerHTML(info leetcode.CNVideoInfo, autoplay bool) string {
+	cfgBytes, _ := json.Marshal(struct {
+		VID      string `json:"vid"`
+		PlayAuth string `json:"playauth"`
+		Cover    string `json:"cover"`
+		Autoplay bool   `json:"autoplay"`
+	}{
+		VID:      info.VideoID,
+		PlayAuth: info.PlayAuth,
+		Cover:    info.CoverURL,
+		Autoplay: autoplay,
+	})
+	safeCfg := strings.ReplaceAll(string(cfgBytes), "</", `<\/`)
+	preconnect := `<link rel="preconnect" href="https://g.alicdn.com" crossorigin><link rel="preconnect" href="https://video.leetcode.cn" crossorigin><link rel="preconnect" href="https://vod.cn-shanghai.aliyuncs.com" crossorigin>`
+	style := videoPlayerBaseCSS +
+		`#p.prism-player{width:100%!important;height:100%!important;background:#0c0e12!important}` +
+		`#p.prism-player .prism-controlbar .prism-controlbar-bg{background:rgba(20,22,26,.88)!important;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}` +
+		`#p.prism-player .prism-time-display,#p.prism-player .prism-time-display .duration{color:rgba(255,255,255,.76)!important}` +
+		`#p.prism-player .prism-time-display .current-time{color:#fff!important}` +
+		`#p.prism-player .prism-progress{background:rgba(255,255,255,.26)!important}` +
+		`#p.prism-player .prism-progress .prism-progress-loaded{background:rgba(255,255,255,.48)!important}` +
+		`#p.prism-player .prism-big-play-btn{box-shadow:0 4px 16px rgba(0,0,0,.22)!important;border:1px solid rgba(0,0,0,.08)!important}`
+	script := `<script id="cfg" type="application/json">` + safeCfg + `</script>` +
+		`<script src="https://g.alicdn.com/de/prismplayer/2.9.3/aliplayer-min.js"></script>` +
+		`<script>(function(){var seq=0,d=false,isReady=false,p=null,timer=null;var c=JSON.parse(document.getElementById('cfg').textContent);var wantPlay=!!(c.autoplay||window.__wantPlay);function sig(s){document.title=s+':'+(++seq)}function hide(){if(d)return;d=true;document.body.classList.add('ready');setTimeout(function(){document.body.classList.add('done')},250)}function armFallback(){if(timer)clearTimeout(timer);timer=setTimeout(function(){if(wantPlay){hide();sig('declic:ready')}},3500)}function startPlay(){if(!p)return;var v=document.querySelector('#p video');if(!v||v.paused){try{p.play()}catch(_){}}}function revealPlaying(){if(!wantPlay)return;if(timer){clearTimeout(timer);timer=null}hide();var v=document.querySelector('#p video');if(v&&v.readyState<2){var onData=function(){v.removeEventListener('loadeddata',onData);if(wantPlay)sig('declic:playing')};v.addEventListener('loadeddata',onData);return}requestAnimationFrame(function(){if(wantPlay)sig('declic:playing')})}window.__declicPlay=function(){wantPlay=true;armFallback();if(isReady)startPlay()};window.__declicPause=function(){wantPlay=false;if(timer){clearTimeout(timer);timer=null}if(p&&p.pause){try{p.pause()}catch(_){}}};if(wantPlay)armFallback();try{p=new window.Aliplayer({id:'p',vid:c.vid,playauth:c.playauth,encryptType:1,cover:c.cover,autoplay:wantPlay,preload:true,playsinline:true,width:'100%',height:'100%'});window.__aliPlayer=p;p.on('ready',function(){isReady=true;hide();if(wantPlay)startPlay()});p.on('playing',revealPlaying);p.on('error',function(){var l=document.querySelector('.label');if(l)l.textContent='Video unavailable';document.body.classList.add('err');if(wantPlay)sig('declic:error')})}catch(_){var l=document.querySelector('.label');if(l)l.textContent='Video unavailable';document.body.classList.add('err');if(wantPlay)sig('declic:error')}})()</script>`
+	return `<!doctype html><html><head><meta charset="utf-8"><title>declic:idle</title>` + preconnect + `<link rel="stylesheet" href="https://g.alicdn.com/de/prismplayer/2.9.3/skins/default/aliplayer-min.css"><style>` + style + `</style></head><body>` + videoLoaderHTML + `<div id="p"></div>` + script + `</body></html>`
 }
 
 func (a *app) ensureLinkedImage(imgURL string) *linkedImageState {

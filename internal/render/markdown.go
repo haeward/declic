@@ -30,6 +30,7 @@ var (
 	reEmptyHTMLBlock = regexp.MustCompile(`(?is)<(?:div|p)\b[^>]*>(?:\s|&nbsp;|&#160;|<br\s*/?>)*</(?:div|p)>`)
 	reSlideCarousel  = regexp.MustCompile(`(?s)!\?!([^!\n]+?\.json[^!\n]*?)!\?!`)
 	reMultiBlank     = regexp.MustCompile(`\n{3,}`)
+	reVideoUUID      = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 )
 
 func extractAttr(attrs string, re *regexp.Regexp) string {
@@ -537,7 +538,25 @@ func rewriteMarkdownLinkedAndInlineImages(s string, addVideo func(string)) strin
 			if ok1 && p1 < len(s) && s[p1] == '(' {
 				imgRaw, p2, ok2 := scanBalanced(s, p1, '(', ')')
 				if ok2 {
+					rawTarget := strings.TrimSpace(imgRaw)
+					if reVideoUUID.MatchString(rawTarget) {
+						out.WriteString("\n\n```declic-cn-video\n")
+						out.WriteString(rawTarget)
+						out.WriteString("\n```\n\n")
+						i = p2
+						continue
+					}
 					imgURL := normalizeMediaURL(imgRaw)
+					if IsDirectVideoURL(imgURL) {
+						if addVideo != nil {
+							addVideo(imgURL)
+						}
+						out.WriteString("\n\n```declic-video\n")
+						out.WriteString(imgURL)
+						out.WriteString("\n```\n\n")
+						i = p2
+						continue
+					}
 					if u, err := url.Parse(imgURL); err == nil && u.Scheme == "https" && u.Host != "" && u.User == nil {
 						// Check if preceded/followed by non-whitespace on the same line.
 						prevNonWS := i > 0 && s[i-1] != '\n'
