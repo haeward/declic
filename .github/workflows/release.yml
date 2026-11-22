@@ -18,16 +18,19 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: release-${{ github.ref }}
-  cancel-in-progress: false
-
 jobs:
-  release-macos:
-    name: Build & Draft macOS Release
+  build:
+    name: Build macOS Release
     runs-on: macos-26
-    permissions:
-      contents: write
+    timeout-minutes: 30
+    concurrency:
+      group: release-build-${{ github.ref }}
+      cancel-in-progress: false
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      slug: ${{ steps.meta.outputs.slug }}
+      tag: ${{ steps.meta.outputs.tag }}
+      prerelease: ${{ steps.meta.outputs.prerelease }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -40,18 +43,27 @@ jobs:
 
       - name: Resolve version and validate tag
         id: meta
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_DRY_RUN: ${{ inputs.dry_run }}
+          INPUT_PRERELEASE: ${{ inputs.prerelease }}
         run: |
-          version="$(jq -r '.version' mygo.json)"
-          slug="$(jq -r '.slug // (.name | ascii_downcase)' mygo.json)"
-          if [ -z "$version" ] || [ "$version" = "null" ]; then
-            echo "Missing version in mygo.json"
+          version="$(jq -r '.version // empty' mygo.json)"
+          slug="$(jq -r '.slug // (.name // empty | ascii_downcase)' mygo.json)"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Invalid or missing version in mygo.json: '${version}'"
+            exit 1
+          fi
+          if [[ ! "$slug" =~ ^[a-z0-9][a-z0-9._-]*$ ]]; then
+            echo "::error::Invalid or missing slug in mygo.json: '${slug}'"
             exit 1
           fi
 
-          if [ "${{ github.event_name }}" = "push" ]; then
+          if [ "$EVENT_NAME" = "push" ]; then
             tag="${GITHUB_REF_NAME}"
             if [ "$tag" != "v${version}" ]; then
-              echo "Tag ${tag} does not match mygo.json version v${version}"
+              echo "::error::Tag ${tag} does not match mygo.json version v${version}"
               exit 1
             fi
             if [[ "$tag" == v0.* ]] || [[ "$tag" == *-* ]]; then
@@ -61,7 +73,11 @@ jobs:
             fi
           else
             tag="v${version}"
-            prerelease="${{ inputs.prerelease }}"
+            if [ "$INPUT_DRY_RUN" != "true" ] && [ "$GITHUB_REF" != "refs/heads/main" ] && [ "$GITHUB_REF" != "refs/tags/${tag}" ]; then
+              echo "::error::Manual draft releases (dry_run=false) must be run from main or tag ${tag} (got ${GITHUB_REF})."
+              exit 1
+            fi
+            prerelease="$INPUT_PRERELEASE"
           fi
 
           echo "version=${version}" >> "$GITHUB_OUTPUT"
@@ -69,7 +85,54 @@ jobs:
           echo "tag=${tag}" >> "$GITHUB_OUTPUT"
           echo "prerelease=${prerelease}" >> "$GITHUB_OUTPUT"
 
+      - name: Preflight tag and release state
+        if: github.event_name == 'push' || inputs.dry_run == false
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.meta.outputs.tag }}
+        run: |
+          # If the tag already exists remotely, ensure it points to this exact commit (peeling annotated tags).
+          tag_refs="$(git ls-remote --tags origin "refs/tags/${TAG}" "refs/tags/${TAG}^{}")"
+          tag_commit="$(printf '%s\n' "$tag_refs" | awk -v ref="refs/tags/${TAG}" '
+            $2 == ref "^{}" { peeled = $1 }
+            $2 == ref { direct = $1 }
+            END { print (peeled != "" ? peeled : direct) }
+          ')"
+          if [ -n "$tag_commit" ] && [ "$tag_commit" != "$GITHUB_SHA" ]; then
+            echo "::error::Tag ${TAG} already points to ${tag_commit}, which does not match this commit (${GITHUB_SHA}). Re-run from tag ${TAG} to rebuild it, or bump the version for new code."
+            exit 1
+          fi
+
+          # Fast-fail before tests and macOS DMG packaging if the release is already published or GitHub cannot be queried.
+          status_file="$(mktemp)"
+          err_file="$(mktemp)"
+          trap 'rm -f "$status_file" "$err_file"' EXIT
+          rc=0
+          gh api -i "repos/{owner}/{repo}/releases/tags/${TAG}" >"$status_file" 2>"$err_file" || rc=$?
+          http_status="$(awk '
+            { sub(/\r$/, "") }
+            /^HTTP\/[0-9.]+ [0-9][0-9][0-9]/ { code = $2 }
+            /^$/ { exit }
+            END { print code }
+          ' "$status_file")"
+          case "$http_status" in
+            200)
+              echo "::error::Release ${TAG} is already published. Use a new tag to distribute updated assets."
+              exit 1
+              ;;
+            404)
+              ;; # Not published yet (absent or unpublished draft).
+            *)
+              echo "::error::Failed to query release state for ${TAG} (exit ${rc}, HTTP ${http_status:-unknown})."
+              cat "$err_file" >&2
+              head -n 20 "$status_file" >&2
+              exit 1
+              ;;
+          esac
+
       - name: Verify formatting, tests, and static checks
+        shell: bash
         run: |
           unformatted="$(gofmt -l .)"
           if [ -n "$unformatted" ]; then
@@ -82,11 +145,13 @@ jobs:
           go tool mygo vet .
           GOOS=linux GOARCH=amd64 go build ./...
           GOOS=windows GOARCH=amd64 go build ./...
+          GOOS=windows GOARCH=amd64 go vet ./...
 
       - name: Build macOS dual-architecture DMGs
         run: go tool mygo build -platform darwin/arm64,darwin/amd64
 
       - name: Collect release artifacts and checksums
+        shell: bash
         env:
           SLUG: ${{ steps.meta.outputs.slug }}
           VERSION: ${{ steps.meta.outputs.version }}
@@ -108,15 +173,83 @@ jobs:
           path: dist/*
           retention-days: 14
 
+  draft-release:
+    name: Draft GitHub Release
+    needs: build
+    if: github.event_name == 'push' || inputs.dry_run == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    concurrency:
+      group: release-publish-${{ needs.build.outputs.tag }}
+      cancel-in-progress: false
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Download macOS release artifacts
+        uses: actions/download-artifact@v8
+        with:
+          name: declic-${{ needs.build.outputs.tag }}-macos
+          path: dist
+
+      - name: Verify downloaded artifact checksums
+        shell: bash
+        run: |
+          (cd dist && sha256sum -c SHA256SUMS.txt)
+
       - name: Create or update draft GitHub Release
-        if: github.event_name == 'push' || inputs.dry_run == false
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.meta.outputs.tag }}
-          VERSION: ${{ steps.meta.outputs.version }}
-          SLUG: ${{ steps.meta.outputs.slug }}
-          PRERELEASE: ${{ steps.meta.outputs.prerelease }}
+          TAG: ${{ needs.build.outputs.tag }}
+          VERSION: ${{ needs.build.outputs.version }}
+          SLUG: ${{ needs.build.outputs.slug }}
+          PRERELEASE: ${{ needs.build.outputs.prerelease }}
         run: |
+          # Re-verify remote tag consistency right before modifying any release (peeling annotated tags).
+          tag_refs="$(git ls-remote --tags origin "refs/tags/${TAG}" "refs/tags/${TAG}^{}")"
+          tag_commit="$(printf '%s\n' "$tag_refs" | awk -v ref="refs/tags/${TAG}" '
+            $2 == ref "^{}" { peeled = $1 }
+            $2 == ref { direct = $1 }
+            END { print (peeled != "" ? peeled : direct) }
+          ')"
+          if [ -n "$tag_commit" ] && [ "$tag_commit" != "$GITHUB_SHA" ]; then
+            echo "::error::Tag ${TAG} already points to ${tag_commit}, which does not match this commit (${GITHUB_SHA}). Re-run from tag ${TAG} to rebuild it, or bump the version for new code."
+            exit 1
+          fi
+
+          # With contents: write, the releases list includes unpublished drafts.
+          matched_releases="$(gh api --paginate 'repos/{owner}/{repo}/releases?per_page=100' |
+            jq -r --arg tag "$TAG" '.[] | select(.tag_name == $tag) | "\(.draft)\t\(.target_commitish // "")"')"
+          if [ -n "$matched_releases" ]; then
+            if [[ "$matched_releases" == *$'\n'* ]]; then
+              matched_states="$(printf '%s\n' "$matched_releases" | awk -F'\t' '{ printf "%s%s", (NR > 1 ? ", " : ""), $1 }')"
+              echo "::error::Unexpected release state for ${TAG} (multiple matches: ${matched_states})."
+              exit 1
+            fi
+            IFS=$'\t' read -r is_draft draft_target <<< "$matched_releases"
+            case "$is_draft" in
+              true)
+                if [ -z "$tag_commit" ] && [ "$draft_target" != "$GITHUB_SHA" ]; then
+                  echo "::error::Draft release ${TAG} targets '${draft_target:-unknown}', which is not pinned to this commit (${GITHUB_SHA}). Delete the draft or use a new version to publish updated code."
+                  exit 1
+                fi
+                gh release upload "$TAG" dist/* --clobber
+                exit 0
+                ;;
+              false)
+                echo "::error::Release ${TAG} is already published. Use a new tag to distribute updated assets."
+                exit 1
+                ;;
+              *)
+                echo "::error::Unexpected release state for ${TAG} (draft='${is_draft}')."
+                exit 1
+                ;;
+            esac
+          fi
+
           changelog_section=""
           if [ -f CHANGELOG.md ]; then
             changelog_section="$(awk -v ver="$VERSION" '
@@ -127,10 +260,18 @@ jobs:
             ' CHANGELOG.md | sed -e '/./,$!d')"
           fi
 
+          if [ "$PRERELEASE" = "true" ]; then
+            release_label="Early Preview (\`${TAG}\`)"
+            build_label="This preview build"
+          else
+            release_label="Declic \`${TAG}\`"
+            build_label="This build"
+          fi
+
           {
             cat <<EOF
           > [!IMPORTANT]
-          > **Early Preview (\`${TAG}\`)** — Declic is a third-party, open-source desktop client for \`leetcode.com\` and \`leetcode.cn\`, not affiliated with or endorsed by LeetCode.
+          > **${release_label}** — Declic is a third-party, open-source desktop client for \`leetcode.com\` and \`leetcode.cn\`, not affiliated with or endorsed by LeetCode.
           EOF
 
             if [ -n "$changelog_section" ]; then
@@ -149,7 +290,7 @@ jobs:
 
           ### macOS Gatekeeper Notice (Ad-hoc Signed)
 
-          This preview build is ad-hoc signed and **not notarized** with an Apple Developer ID certificate. If macOS reports that the app cannot be verified or appears damaged after dragging \`Declic.app\` into \`/Applications\`, clear the quarantine attribute once in Terminal:
+          ${build_label} is ad-hoc signed and **not notarized** with an Apple Developer ID certificate. If macOS reports that the app cannot be verified or appears damaged after dragging \`Declic.app\` into \`/Applications\`, clear the quarantine attribute once in Terminal:
 
           \`\`\`sh
           xattr -dr com.apple.quarantine /Applications/Declic.app
@@ -165,18 +306,14 @@ jobs:
           EOF
           } > release-notes.md
 
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" dist/* --clobber
-          else
-            flags=(--draft --title "Declic ${TAG}" --notes-file release-notes.md)
-            if [ -z "$changelog_section" ]; then
-              flags+=(--generate-notes)
-            fi
-            if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-              flags+=(--target "$GITHUB_SHA")
-            fi
-            if [ "$PRERELEASE" = "true" ]; then
-              flags+=(--prerelease)
-            fi
-            gh release create "$TAG" dist/* "${flags[@]}"
+          create_flags=(--draft --title "Declic ${TAG}" --notes-file release-notes.md)
+          if [ -z "$changelog_section" ]; then
+            create_flags+=(--generate-notes)
           fi
+          if [ -z "$tag_commit" ]; then
+            create_flags+=(--target "$GITHUB_SHA")
+          fi
+          if [ "$PRERELEASE" = "true" ]; then
+            create_flags+=(--prerelease)
+          fi
+          gh release create "$TAG" dist/* "${create_flags[@]}"
