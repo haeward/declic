@@ -9,7 +9,6 @@ import (
 )
 
 type Article struct {
-	UUID    string `json:"uuid"`
 	Title   string `json:"title"`
 	Slug    string `json:"slug"`
 	Content string `json:"content"`
@@ -22,9 +21,6 @@ type Article struct {
 	} `json:"author"`
 }
 
-func (c *Client) Editorial(ctx context.Context, slug string) (*Article, error) {
-	return c.EditorialForViewer(ctx, slug, nil)
-}
 func (c *Client) EditorialForViewer(ctx context.Context, slug string, cookies []*http.Cookie) (*Article, error) {
 	var r struct{ Question struct{ Solution *Article } }
 	query := `query($slug:String!){question(titleSlug:$slug){solution{title content paidOnly canSeeDetail}}}`
@@ -51,7 +47,7 @@ func (c *Client) Solutions(ctx context.Context, slug, order, lang string, skip i
 	var r struct {
 		List struct{ Edges []struct{ Node Article } }
 	}
-	query := `query($slug:String!,$order:ArticleOrderByEnum,$tags:[String!],$skip:Int!){list:ugcArticleSolutionArticles(questionSlug:$slug,orderBy:$order,tagSlugs:$tags,first:20,skip:$skip){edges{node{uuid slug title hitCount upvoteCount author{userName}}}}}`
+	query := `query($slug:String!,$order:ArticleOrderByEnum,$tags:[String!],$skip:Int!){list:ugcArticleSolutionArticles(questionSlug:$slug,orderBy:$order,tagSlugs:$tags,first:20,skip:$skip){edges{node{slug title hitCount upvoteCount author{userName}}}}}`
 	if c.Site == CN {
 		query = strings.NewReplacer("ugcArticleSolutionArticles", "questionSolutionArticles", "ArticleOrderByEnum", "SolutionArticleOrderBy", "author{userName}", "author{userName:username}").Replace(query)
 	} else {

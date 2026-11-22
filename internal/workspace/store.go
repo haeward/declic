@@ -5,15 +5,48 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 )
 
 type Key struct{ Site, Account, Problem, Language string }
 
-var segment = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
+var (
+	segment            = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
+	languageExtensions = map[string]string{
+		"cpp":        "cpp",
+		"java":       "java",
+		"python3":    "py",
+		"python":     "py",
+		"javascript": "js",
+		"typescript": "ts",
+		"csharp":     "cs",
+		"c":          "c",
+		"golang":     "go",
+		"kotlin":     "kt",
+		"swift":      "swift",
+		"rust":       "rs",
+		"ruby":       "rb",
+		"php":        "php",
+		"dart":       "dart",
+		"scala":      "scala",
+		"elixir":     "ex",
+		"erlang":     "erl",
+		"racket":     "rkt",
+		"mysql":      "sql",
+		"mssql":      "sql",
+		"oraclesql":  "sql",
+		"postgresql": "sql",
+		"pythondata": "py",
+		"bash":       "sh",
+	}
+)
 
 type Store struct{ Root string }
 
 func (s Store) path(k Key) (string, error) {
+	if strings.TrimSpace(s.Root) == "" {
+		return "", fmt.Errorf("missing workspace root")
+	}
 	for _, part := range []string{k.Site, k.Account, k.Problem, k.Language} {
 		if !segment.MatchString(part) {
 			return "", fmt.Errorf("invalid workspace key")
@@ -24,11 +57,6 @@ func (s Store) path(k Key) (string, error) {
 		return "", fmt.Errorf("unsupported language")
 	}
 	return filepath.Join(s.Root, k.Site, k.Account, k.Problem, k.Language, "solution."+ext), nil
-}
-
-func (s Store) Load(k Key, template string) (string, error) {
-	text, _, err := s.LoadDraft(k, template)
-	return text, err
 }
 
 // LoadDraft distinguishes an untouched template from a draft actually on disk.
@@ -78,31 +106,5 @@ func writeAtomic(path, text string) error {
 
 // Extension returns an empty string for unsupported editor languages.
 func Extension(language string) string {
-	return map[string]string{
-		"cpp":        "cpp",
-		"java":       "java",
-		"python3":    "py",
-		"python":     "py",
-		"javascript": "js",
-		"typescript": "ts",
-		"csharp":     "cs",
-		"c":          "c",
-		"golang":     "go",
-		"kotlin":     "kt",
-		"swift":      "swift",
-		"rust":       "rs",
-		"ruby":       "rb",
-		"php":        "php",
-		"dart":       "dart",
-		"scala":      "scala",
-		"elixir":     "ex",
-		"erlang":     "erl",
-		"racket":     "rkt",
-		"mysql":      "sql",
-		"mssql":      "sql",
-		"oraclesql":  "sql",
-		"postgresql": "sql",
-		"pythondata": "py",
-		"bash":       "sh",
-	}[language]
+	return languageExtensions[language]
 }

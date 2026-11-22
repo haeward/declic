@@ -16,18 +16,15 @@ type PlaygroundRef struct {
 	UUID string
 }
 
-type playgroundRef = PlaygroundRef
-
 var (
 	reTOCLine        = regexp.MustCompile(`(?im)^[ \t]*(?:\[TOC\]|\[\[_TOC_\]\])[ \t]*$`)
 	reDivIframeBlock = regexp.MustCompile(`(?is)<div\b[^>]*>(?:\s|<div\b[^>]*>)*<iframe\b([^>]*)>(?:\s*</iframe>)?(?:\s|</div>)*`)
 	reStandaloneIfr  = regexp.MustCompile(`(?is)<iframe\b([^>]*)>(?:\s*</iframe>)?`)
 	reVideoBlock     = regexp.MustCompile(`(?is)(?:<div\b[^>]*>\s*)*<video\b([^>]*)>(.*?)</video>(?:\s*</div>)*`)
 	reSourceTag      = regexp.MustCompile(`(?is)<source\b([^>]*)/?>`)
-	reAttrSrc        = regexp.MustCompile(`(?i)\bsrc\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\s>]+))`)
-	reAttrHref       = regexp.MustCompile(`(?i)\bhref\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\s>]+))`)
-	reAttrPoster     = regexp.MustCompile(`(?i)\bposter\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\s>]+))`)
-	reAttrAlt        = regexp.MustCompile(`(?i)\balt\s*=\s*(?:"([^"]*)"|'([^']*)')`)
+	reAttrSrc        = regexp.MustCompile(`(?i)(?:^|\s)src\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>"']+))`)
+	reAttrHref       = regexp.MustCompile(`(?i)(?:^|\s)href\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>"']+))`)
+	reAttrAlt        = regexp.MustCompile(`(?i)(?:^|\s)alt\s*=\s*(?:"([^"]*)"|'([^']*)')`)
 	reAnchorImg      = regexp.MustCompile(`(?is)<a\b([^>]*)>\s*<img\b([^>]*)/?>\s*</a>`)
 	reImgTag         = regexp.MustCompile(`(?is)(?:<div\b[^>]*>\s*)?<img\b([^>]*)/?>(?:\s*</div>)?`)
 	reEmptyHTMLBlock = regexp.MustCompile(`(?is)<(?:div|p)\b[^>]*>(?:\s|&nbsp;|&#160;|<br\s*/?>)*</(?:div|p)>`)
@@ -45,10 +42,10 @@ func extractAttr(attrs string, re *regexp.Regexp) string {
 	return ""
 }
 
-func parsePlaygroundURL(raw string) (playgroundRef, bool) {
+func parsePlaygroundURL(raw string) (PlaygroundRef, bool) {
 	u, err := url.Parse(strings.TrimSpace(raw))
-	if err != nil || (u.Scheme != "https" && u.Scheme != "http") {
-		return playgroundRef{}, false
+	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.User != nil {
+		return PlaygroundRef{}, false
 	}
 	host := strings.ToLower(u.Hostname())
 	var site leetcode.Site
@@ -58,18 +55,18 @@ func parsePlaygroundURL(raw string) (playgroundRef, bool) {
 	case "leetcode.cn", "www.leetcode.cn":
 		site = leetcode.CN
 	default:
-		return playgroundRef{}, false
+		return PlaygroundRef{}, false
 	}
 	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
 	if len(parts) < 2 || parts[0] != "playground" || !IsSafeSlug(parts[1]) {
-		return playgroundRef{}, false
+		return PlaygroundRef{}, false
 	}
-	return playgroundRef{Site: site, UUID: parts[1]}, true
+	return PlaygroundRef{Site: site, UUID: parts[1]}, true
 }
 
 var (
-	reLatexNCommand = regexp.MustCompile(`^\\(?:neq|ne\b|nabla|nu\b|neg|notin|nmid|nexists|nolimits|ni\b|natural)`)
-	reLatexTCommand = regexp.MustCompile(`^\\(?:times|to\b|text|textrm|textbf|textit|texttt|theta|tau\b|tfrac|tilde|triangle|top\b|therefore|tan\b|tanh\b|tbinom)`)
+	reLatexNCommand = regexp.MustCompile(`^\\(?:neq|ne\b|not\b|newline\b|nabla|nu\b|neg|notin|nmid|nexists|nolimits|ni\b|natural)`)
+	reLatexTCommand = regexp.MustCompile(`^\\(?:times|to\b|text|theta|tau\b|tfrac|tilde|triangle|top\b|therefore|tan\b|tanh\b|tbinom)`)
 )
 
 // unescapeLeetCodeMarkdown restores real newlines and tabs when LeetCode's UGC
@@ -153,16 +150,12 @@ func normalizeFenceLine(line string) string {
 // PreprocessArticleMarkdown cleans LeetCode editorial/solution Markdown, extracting
 // playground snippets, video walkthroughs, interactive slide decks, and multi-language code tabs.
 func PreprocessArticleMarkdown(src string) (string, []PlaygroundRef, []string) {
-	return preprocessArticleMarkdown(src)
-}
-
-func preprocessArticleMarkdown(src string) (string, []playgroundRef, []string) {
 	normalized := unescapeLeetCodeMarkdown(strings.ReplaceAll(src, "\r\n", "\n"))
 	lines := strings.Split(normalized, "\n")
 
 	var out strings.Builder
 	var prose strings.Builder
-	var refs []playgroundRef
+	var refs []PlaygroundRef
 	var videos []string
 	seenRef := map[string]bool{}
 	seenVid := map[string]bool{}
@@ -201,7 +194,7 @@ func preprocessArticleMarkdown(src string) (string, []playgroundRef, []string) {
 				}
 				return fmt.Sprintf("\n\n```declic-playground\n%s %s\n```\n\n", string(ref.Site), ref.UUID)
 			}
-			if isTrustedVideoHost(srcURL) {
+			if IsTrustedVideoHost(srcURL) {
 				addVideo(srcURL)
 				return fmt.Sprintf("\n\n```declic-video\n%s\n```\n\n", srcURL)
 			}
@@ -226,20 +219,10 @@ func preprocessArticleMarkdown(src string) (string, []playgroundRef, []string) {
 			if strings.HasPrefix(srcURL, "//") {
 				srcURL = "https:" + srcURL
 			}
-			if !isTrustedVideoHost(srcURL) && !isDirectVideoURL(srcURL) {
+			if !IsTrustedVideoHost(srcURL) && !IsDirectVideoURL(srcURL) {
 				return ""
 			}
 			addVideo(srcURL)
-			posterURL := extractAttr(attrs, reAttrPoster)
-			if strings.HasPrefix(posterURL, "//") {
-				posterURL = "https:" + posterURL
-			}
-			if u, err := url.Parse(posterURL); err != nil || u.Scheme != "https" || u.Host == "" {
-				posterURL = ""
-			}
-			if posterURL != "" {
-				return fmt.Sprintf("\n\n```declic-video\n%s\n%s\n```\n\n", srcURL, posterURL)
-			}
 			return fmt.Sprintf("\n\n```declic-video\n%s\n```\n\n", srcURL)
 		})
 
@@ -248,7 +231,10 @@ func preprocessArticleMarkdown(src string) (string, []playgroundRef, []string) {
 			sub := reSlideCarousel.FindStringSubmatch(full)
 			spec := ""
 			if len(sub) >= 2 {
-				spec = strings.TrimSpace(sub[1])
+				spec = strings.TrimSpace(strings.ReplaceAll(sub[1], "\r", ""))
+			}
+			if spec == "" || strings.Contains(spec, "`") {
+				return ""
 			}
 			return fmt.Sprintf("\n\n```declic-slides\n%s\n```\n\n", spec)
 		})
@@ -271,7 +257,11 @@ func preprocessArticleMarkdown(src string) (string, []playgroundRef, []string) {
 				}
 				return block
 			}
-			return full
+			if u, err := url.Parse(imgSrc); err == nil && u.Scheme == "https" && u.Host != "" && u.User == nil {
+				cleanAlt := strings.ReplaceAll(alt, "]", "")
+				return fmt.Sprintf("\n\n![%s](%s)\n\n", cleanAlt, imgSrc)
+			}
+			return ""
 		})
 
 		// Convert Markdown linked images [![alt](imgURL)](linkURL) and isolate inline images.
@@ -414,7 +404,7 @@ func normalizeMediaURL(raw string) string {
 	if strings.HasPrefix(s, "//") {
 		s = "https:" + s
 	} else if strings.HasPrefix(s, "http://") {
-		if isTrustedVideoHost("https://" + strings.TrimPrefix(s, "http://")) {
+		if IsTrustedVideoHost("https://" + strings.TrimPrefix(s, "http://")) {
 			s = "https://" + strings.TrimPrefix(s, "http://")
 		}
 	}
@@ -422,15 +412,12 @@ func normalizeMediaURL(raw string) string {
 }
 
 func buildLinkedMediaBlock(linkURL, imgURL, alt string) (string, bool, bool) {
-	if isTrustedVideoHost(linkURL) || isDirectVideoURL(linkURL) {
-		if u, err := url.Parse(imgURL); err == nil && u.Scheme == "https" && u.Host != "" && u.User == nil {
-			return fmt.Sprintf("\n\n```declic-video\n%s\n%s\n```\n\n", linkURL, imgURL), true, true
-		}
+	if IsTrustedVideoHost(linkURL) || IsDirectVideoURL(linkURL) {
 		return fmt.Sprintf("\n\n```declic-video\n%s\n```\n\n", linkURL), true, true
 	}
 	if u, err := url.Parse(imgURL); err == nil && u.Scheme == "https" && u.Host != "" && u.User == nil {
-		if lu, err := url.Parse(linkURL); err == nil && (lu.Scheme == "https" || lu.Scheme == "http") && lu.Host != "" {
-			cleanAlt := strings.ReplaceAll(alt, "\n", " ")
+		if lu, err := url.Parse(linkURL); err == nil && (lu.Scheme == "https" || lu.Scheme == "http") && lu.Host != "" && lu.User == nil {
+			cleanAlt := strings.NewReplacer("\r", "", "\n", " ", "`", "").Replace(alt)
 			return fmt.Sprintf("\n\n```declic-linked-image\n%s\n%s\n%s\n```\n\n", linkURL, imgURL, cleanAlt), false, true
 		}
 	}
@@ -540,19 +527,17 @@ func normalizeCodeTabLang(raw string) string {
 		return "javascript"
 	case "ts", "typescript":
 		return "typescript"
-	case "java", "c", "rust", "rs", "kotlin", "kt", "swift", "ruby", "rb", "php", "dart", "scala", "elixir", "erlang", "racket", "sql", "mysql", "postgresql", "bash", "sh":
-		switch s {
-		case "rs":
-			return "rust"
-		case "kt":
-			return "kotlin"
-		case "rb":
-			return "ruby"
-		case "sh":
-			return "bash"
-		case "sql":
-			return "mysql"
-		}
+	case "rs":
+		return "rust"
+	case "kt":
+		return "kotlin"
+	case "rb":
+		return "ruby"
+	case "sh":
+		return "bash"
+	case "sql":
+		return "mysql"
+	case "java", "c", "rust", "kotlin", "swift", "ruby", "php", "dart", "scala", "elixir", "erlang", "racket", "mysql", "postgresql", "bash":
 		return s
 	default:
 		return ""
@@ -693,16 +678,8 @@ func fenceLanguage(slug string) string {
 		return "python"
 	case "golang":
 		return "go"
-	case "csharp":
-		return "csharp"
-	case "javascript":
-		return "javascript"
-	case "typescript":
-		return "typescript"
 	case "mysql", "mssql", "oraclesql", "postgresql":
 		return "sql"
-	case "bash":
-		return "bash"
 	default:
 		return slug
 	}

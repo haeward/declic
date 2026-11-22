@@ -17,36 +17,20 @@ const (
 	MermaidState
 )
 
-type mermaidKind = MermaidKind
-
-const (
-	mermaidUnsupported = MermaidUnsupported
-	mermaidFlowchart   = MermaidFlowchart
-	mermaidSequence    = MermaidSequence
-	mermaidState       = MermaidState
-)
-
 type MermaidNode struct {
 	ID    string
 	Label string
 	Shape string // "rect", "round", "diamond", "circle", "dot"
-	Layer int
-	Order int
 	X, Y  float32
 	W, H  float32
 }
 
-type mermaidNode = MermaidNode
-
 type MermaidEdge struct {
-	From   string
-	To     string
-	Label  string
-	Dashed bool
-	Arrow  bool
+	From  string
+	To    string
+	Label string
+	Arrow bool
 }
-
-type mermaidEdge = MermaidEdge
 
 type MermaidDiagram struct {
 	Kind      MermaidKind
@@ -56,12 +40,10 @@ type MermaidDiagram struct {
 	NodeByID  map[string]*MermaidNode
 	Edges     []MermaidEdge
 	Actors    []string
-	SeqSteps  []mermaidEdge
+	SeqSteps  []MermaidEdge
 	CanvasW   float32
 	CanvasH   float32
 }
-
-type mermaidDiagram = MermaidDiagram
 
 var (
 	reFlowEdge = regexp.MustCompile(`^\s*(.+?)\s*(-->|<-->|-.->|==>|---|--\s+[^-]+?\s+-->)\s*(?:\|([^|]+)\|\s*)?(.+?)\s*$`)
@@ -71,10 +53,6 @@ var (
 
 // ParseMermaid parses supported Mermaid diagram kinds (flowchart/graph, sequenceDiagram, stateDiagram).
 func ParseMermaid(src string) *MermaidDiagram {
-	return parseMermaid(src)
-}
-
-func parseMermaid(src string) *mermaidDiagram {
 	lines := strings.Split(strings.ReplaceAll(src, "\r\n", "\n"), "\n")
 	var clean []string
 	for _, l := range lines {
@@ -85,7 +63,7 @@ func parseMermaid(src string) *mermaidDiagram {
 		clean = append(clean, t)
 	}
 	if len(clean) == 0 {
-		return &mermaidDiagram{Kind: mermaidUnsupported, KindLabel: "Mermaid"}
+		return &MermaidDiagram{Kind: MermaidUnsupported, KindLabel: "Mermaid"}
 	}
 	first := clean[0]
 	low := strings.ToLower(first)
@@ -102,13 +80,13 @@ func parseMermaid(src string) *mermaidDiagram {
 				dir = d
 			}
 		}
-		return parseFlowchart(clean[1:], dir, mermaidFlowchart, "Flowchart")
+		return parseFlowchart(clean[1:], dir)
 	case strings.HasPrefix(low, "sequencediagram"):
 		return parseSequence(clean[1:])
 	case strings.HasPrefix(low, "statediagram"):
 		return parseStateDiagram(clean[1:])
 	default:
-		return &mermaidDiagram{Kind: mermaidUnsupported, KindLabel: "Mermaid"}
+		return &MermaidDiagram{Kind: MermaidUnsupported, KindLabel: "Mermaid"}
 	}
 }
 
@@ -147,7 +125,7 @@ func parseMermaidNodeToken(tok string) (id, label, shape string) {
 	return s, unquote(s), "rect"
 }
 
-func addOrUpdateMermaidNode(d *mermaidDiagram, tok string) string {
+func addOrUpdateMermaidNode(d *MermaidDiagram, tok string) string {
 	id, label, shape := parseMermaidNodeToken(tok)
 	if id == "" {
 		return ""
@@ -164,18 +142,18 @@ func addOrUpdateMermaidNode(d *mermaidDiagram, tok string) string {
 	if label == "" {
 		label = id
 	}
-	n := &mermaidNode{ID: id, Label: label, Shape: shape}
+	n := &MermaidNode{ID: id, Label: label, Shape: shape}
 	d.Nodes = append(d.Nodes, n)
 	d.NodeByID[id] = n
 	return id
 }
 
-func parseFlowchart(lines []string, dir string, kind mermaidKind, kindLabel string) *mermaidDiagram {
-	d := &mermaidDiagram{
-		Kind:      kind,
-		KindLabel: kindLabel,
+func parseFlowchart(lines []string, dir string) *MermaidDiagram {
+	d := &MermaidDiagram{
+		Kind:      MermaidFlowchart,
+		KindLabel: "Flowchart",
 		Direction: dir,
-		NodeByID:  map[string]*mermaidNode{},
+		NodeByID:  map[string]*MermaidNode{},
 	}
 	for _, raw := range lines {
 		line := strings.TrimSpace(strings.TrimSuffix(raw, ";"))
@@ -191,12 +169,11 @@ func parseFlowchart(lines []string, dir string, kind mermaidKind, kindLabel stri
 			fromID := addOrUpdateMermaidNode(d, left)
 			toID := addOrUpdateMermaidNode(d, right)
 			if fromID != "" && toID != "" {
-				d.Edges = append(d.Edges, mermaidEdge{
-					From:   fromID,
-					To:     toID,
-					Label:  lbl,
-					Dashed: strings.Contains(op, "."),
-					Arrow:  strings.Contains(op, ">"),
+				d.Edges = append(d.Edges, MermaidEdge{
+					From:  fromID,
+					To:    toID,
+					Label: lbl,
+					Arrow: strings.Contains(op, ">"),
 				})
 			}
 			continue
@@ -204,21 +181,20 @@ func parseFlowchart(lines []string, dir string, kind mermaidKind, kindLabel stri
 		addOrUpdateMermaidNode(d, line)
 	}
 	if len(d.Nodes) == 0 {
-		d.Kind = mermaidUnsupported
+		d.Kind = MermaidUnsupported
 		return d
 	}
 	layoutLayeredGraph(d)
 	return d
 }
 
-func parseStateDiagram(lines []string) *mermaidDiagram {
-	d := &mermaidDiagram{
-		Kind:      mermaidState,
+func parseStateDiagram(lines []string) *MermaidDiagram {
+	d := &MermaidDiagram{
+		Kind:      MermaidState,
 		KindLabel: "State Diagram",
 		Direction: "TD",
-		NodeByID:  map[string]*mermaidNode{},
+		NodeByID:  map[string]*MermaidNode{},
 	}
-	startCount := 0
 	for _, raw := range lines {
 		line := strings.TrimSpace(raw)
 		if line == "" || strings.HasPrefix(strings.ToLower(line), "direction ") {
@@ -230,10 +206,9 @@ func parseStateDiagram(lines []string) *mermaidDiagram {
 		if m := reStateEdg.FindStringSubmatch(line); len(m) == 4 {
 			from, to, lbl := m[1], m[2], strings.TrimSpace(m[3])
 			if from == "[*]" {
-				startCount++
 				from = "__start__"
 				if _, ok := d.NodeByID[from]; !ok {
-					n := &mermaidNode{ID: from, Label: "Start", Shape: "dot"}
+					n := &MermaidNode{ID: from, Label: "Start", Shape: "dot"}
 					d.Nodes = append(d.Nodes, n)
 					d.NodeByID[from] = n
 				}
@@ -243,30 +218,29 @@ func parseStateDiagram(lines []string) *mermaidDiagram {
 			if to == "[*]" {
 				to = "__end__"
 				if _, ok := d.NodeByID[to]; !ok {
-					n := &mermaidNode{ID: to, Label: "End", Shape: "dot"}
+					n := &MermaidNode{ID: to, Label: "End", Shape: "dot"}
 					d.Nodes = append(d.Nodes, n)
 					d.NodeByID[to] = n
 				}
 			} else {
 				addOrUpdateMermaidNode(d, to+"("+to+")")
 			}
-			d.Edges = append(d.Edges, mermaidEdge{From: from, To: to, Label: lbl, Arrow: true})
+			d.Edges = append(d.Edges, MermaidEdge{From: from, To: to, Label: lbl, Arrow: true})
 		}
 	}
-	_ = startCount
 	if len(d.Nodes) == 0 {
-		d.Kind = mermaidUnsupported
+		d.Kind = MermaidUnsupported
 		return d
 	}
 	layoutLayeredGraph(d)
 	return d
 }
 
-func parseSequence(lines []string) *mermaidDiagram {
-	d := &mermaidDiagram{
-		Kind:      mermaidSequence,
+func parseSequence(lines []string) *MermaidDiagram {
+	d := &MermaidDiagram{
+		Kind:      MermaidSequence,
 		KindLabel: "Sequence Diagram",
-		NodeByID:  map[string]*mermaidNode{},
+		NodeByID:  map[string]*MermaidNode{},
 	}
 	actorLabel := map[string]string{}
 	addActor := func(id, label string) {
@@ -292,25 +266,24 @@ func parseSequence(lines []string) *mermaidDiagram {
 			if parts := strings.SplitN(rest, " as ", 2); len(parts) == 2 {
 				addActor(parts[0], strings.TrimSpace(parts[1]))
 			} else {
-				addActor(rest, rest)
+				addActor(rest, "")
 			}
 			continue
 		}
 		if m := reSeqMsg.FindStringSubmatch(line); len(m) == 5 {
-			from, op, to, msg := strings.TrimSpace(m[1]), m[2], strings.TrimSpace(m[3]), strings.TrimSpace(m[4])
-			addActor(from, from)
-			addActor(to, to)
-			d.SeqSteps = append(d.SeqSteps, mermaidEdge{
-				From:   from,
-				To:     to,
-				Label:  msg,
-				Dashed: strings.HasPrefix(op, "--"),
-				Arrow:  true,
+			from, to, msg := strings.TrimSpace(m[1]), strings.TrimSpace(m[3]), strings.TrimSpace(m[4])
+			addActor(from, "")
+			addActor(to, "")
+			d.SeqSteps = append(d.SeqSteps, MermaidEdge{
+				From:  from,
+				To:    to,
+				Label: msg,
+				Arrow: true,
 			})
 		}
 	}
 	if len(d.Actors) == 0 {
-		d.Kind = mermaidUnsupported
+		d.Kind = MermaidUnsupported
 		return d
 	}
 	const colW float32 = 132
@@ -319,7 +292,7 @@ func parseSequence(lines []string) *mermaidDiagram {
 	const stepH float32 = 42
 	for i, id := range d.Actors {
 		w := max(float32(84), min(float32(124), float32(len([]rune(actorLabel[id])))*7.5+24))
-		n := &mermaidNode{
+		n := &MermaidNode{
 			ID:    id,
 			Label: actorLabel[id],
 			Shape: "round",
@@ -336,7 +309,7 @@ func parseSequence(lines []string) *mermaidDiagram {
 	return d
 }
 
-func layoutLayeredGraph(d *mermaidDiagram) {
+func layoutLayeredGraph(d *MermaidDiagram) {
 	inDeg := map[string]int{}
 	adj := map[string][]string{}
 	for _, n := range d.Nodes {
@@ -375,12 +348,10 @@ func layoutLayeredGraph(d *mermaidDiagram) {
 			}
 		}
 	}
-	layers := map[int][]*mermaidNode{}
+	layers := map[int][]*MermaidNode{}
 	maxLayer := 0
 	for _, n := range d.Nodes {
 		l := layer[n.ID]
-		n.Layer = l
-		n.Order = len(layers[l])
 		layers[l] = append(layers[l], n)
 		if l > maxLayer {
 			maxLayer = l
@@ -425,8 +396,8 @@ func layoutLayeredGraph(d *mermaidDiagram) {
 				n.Y = y
 				y += n.H + 20
 			}
-			if y > maxH {
-				maxH = y
+			if len(nodes) > 0 && y-20 > maxH {
+				maxH = y - 20
 			}
 			colX += colWidths[l] + 44
 		}
@@ -445,7 +416,7 @@ func layoutLayeredGraph(d *mermaidDiagram) {
 			}
 		}
 		d.CanvasW = max(float32(280), colX-44+pad)
-		d.CanvasH = max(float32(100), maxH+pad-20)
+		d.CanvasH = max(float32(100), maxH+pad)
 		return
 	}
 
@@ -504,7 +475,7 @@ func PaintMermaidCanvas(c *ui.Context, d *MermaidDiagram) {
 
 	ui.Box(c).Size(d.CanvasW, d.CanvasH).Draw(func(p *ui.Painter, r ui.Rect) {
 		ox, oy := r.X, r.Y
-		if d.Kind == mermaidSequence {
+		if d.Kind == MermaidSequence {
 			// Lifelines
 			for _, n := range d.Nodes {
 				cx := ox + n.X + n.W/2
@@ -602,7 +573,7 @@ func PaintMermaidCanvas(c *ui.Context, d *MermaidDiagram) {
 	})
 }
 
-func edgeEndpoints(from, to *mermaidNode, dir string) (x1, y1, x2, y2 float32) {
+func edgeEndpoints(from, to *MermaidNode, dir string) (x1, y1, x2, y2 float32) {
 	if dir == "LR" || dir == "RL" {
 		if from.X <= to.X {
 			return from.X + from.W, from.Y + from.H/2, to.X, to.Y + to.H/2

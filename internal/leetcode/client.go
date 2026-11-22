@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -213,22 +215,41 @@ func (c *Client) DetailForViewer(ctx context.Context, slug string, cookies []*ht
 }
 
 func normalizeSiteAssetURL(site Site, raw string) string {
-	u := strings.TrimSpace(raw)
-	if u == "" {
+	s := strings.TrimSpace(raw)
+	if s == "" {
 		return ""
 	}
-	switch {
-	case strings.HasPrefix(u, "https://"):
-		return u
-	case strings.HasPrefix(u, "//"):
-		return "https:" + u
-	case strings.HasPrefix(u, "/"):
-		return site.URL() + u
-	case strings.HasPrefix(u, "http://"):
-		return "https://" + strings.TrimPrefix(u, "http://")
-	default:
+	if strings.HasPrefix(s, "//") {
+		s = "https:" + s
+	} else if strings.HasPrefix(s, "/") {
+		s = site.URL() + s
+	}
+	u, err := url.Parse(s)
+	if err != nil || u.Host == "" || u.User != nil {
 		return ""
 	}
+	if u.Scheme == "http" {
+		u.Scheme = "https"
+	}
+	if u.Scheme != "https" {
+		return ""
+	}
+	return u.String()
+}
+
+func shouldFallbackViewerQuery(ctx context.Context, err error) bool {
+	if err == nil || ctx.Err() != nil {
+		return false
+	}
+	var rl *RateLimit
+	if errors.As(err, &rl) {
+		return false
+	}
+	var se *StatusError
+	if errors.As(err, &se) {
+		return se.StatusCode == http.StatusBadRequest
+	}
+	return strings.HasPrefix(err.Error(), "GraphQL returned ")
 }
 
 func (c *Client) Viewer(ctx context.Context, cookies []*http.Cookie) (Viewer, error) {
@@ -240,7 +261,7 @@ func (c *Client) Viewer(ctx context.Context, cookies []*http.Cookie) (Viewer, er
 		query = `{userStatus{isSignedIn username isPremium avatar realName userSlug}}`
 	}
 	err := c.query(ctx, query, nil, cookies, &result)
-	if err != nil {
+	if shouldFallbackViewerQuery(ctx, err) {
 		result.Viewer = nil
 		err = c.query(ctx, `{userStatus{isSignedIn username isPremium}}`, nil, cookies, &result)
 	}
@@ -263,6 +284,14 @@ func (c *Client) enrichViewerProfile(ctx context.Context, cookies []*http.Cookie
 		RealName   string `json:"realName"`
 		UserAvatar string `json:"userAvatar"`
 	}
+	apply := func(p profileFields) {
+		if v.RealName == "" {
+			v.RealName = strings.TrimSpace(p.RealName)
+		}
+		if v.Avatar == "" {
+			v.Avatar = strings.TrimSpace(p.UserAvatar)
+		}
+	}
 	if c.Site == CN {
 		slug := v.UserSlug
 		if slug == "" {
@@ -273,14 +302,8 @@ func (c *Client) enrichViewerProfile(ctx context.Context, cookies []*http.Cookie
 				Profile profileFields `json:"profile"`
 			} `json:"userProfilePublicProfile"`
 		}
-		err := c.query(ctx, `query($userSlug:String!){userProfilePublicProfile(userSlug:$userSlug){profile{realName userAvatar}}}`, map[string]any{"userSlug": slug}, cookies, &r)
-		if err == nil && r.Public != nil {
-			if v.RealName == "" && strings.TrimSpace(r.Public.Profile.RealName) != "" {
-				v.RealName = strings.TrimSpace(r.Public.Profile.RealName)
-			}
-			if v.Avatar == "" && strings.TrimSpace(r.Public.Profile.UserAvatar) != "" {
-				v.Avatar = strings.TrimSpace(r.Public.Profile.UserAvatar)
-			}
+		if err := c.query(ctx, `query($userSlug:String!){userProfilePublicProfile(userSlug:$userSlug){profile{realName userAvatar}}}`, map[string]any{"userSlug": slug}, cookies, &r); err == nil && r.Public != nil {
+			apply(r.Public.Profile)
 		}
 		return
 	}
@@ -289,14 +312,8 @@ func (c *Client) enrichViewerProfile(ctx context.Context, cookies []*http.Cookie
 			Profile profileFields `json:"profile"`
 		} `json:"matchedUser"`
 	}
-	err := c.query(ctx, `query($username:String!){matchedUser(username:$username){profile{realName userAvatar}}}`, map[string]any{"username": v.Username}, cookies, &r)
-	if err == nil && r.Matched != nil {
-		if v.RealName == "" && strings.TrimSpace(r.Matched.Profile.RealName) != "" {
-			v.RealName = strings.TrimSpace(r.Matched.Profile.RealName)
-		}
-		if v.Avatar == "" && strings.TrimSpace(r.Matched.Profile.UserAvatar) != "" {
-			v.Avatar = strings.TrimSpace(r.Matched.Profile.UserAvatar)
-		}
+	if err := c.query(ctx, `query($username:String!){matchedUser(username:$username){profile{realName userAvatar}}}`, map[string]any{"username": v.Username}, cookies, &r); err == nil && r.Matched != nil {
+		apply(r.Matched.Profile)
 	}
 }
 

@@ -137,4 +137,31 @@ func TestJudgmentUnmarshalVariantsAndStatusError(t *testing.T) {
 	if !errors.As(err, &statusErr) || statusErr.StatusCode != http.StatusForbidden || err.Error() != "leetcode.cn returned HTTP 403" {
 		t.Fatalf("expected StatusError 403, got %v", err)
 	}
+
+	// Unsafe slugs and empty IDs are rejected before issuing a request.
+	called := false
+	client.HTTP.Transport = roundTrip(func(r *http.Request) (*http.Response, error) {
+		called = true
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{}`)), Header: make(http.Header)}, nil
+	})
+	if _, err := client.StartJudge(context.Background(), true, Problem{ID: "1", Slug: ".."}, "golang", "code", nil, nil); err == nil || called {
+		t.Fatalf("expected traversal slug to fail before HTTP request, err=%v called=%v", err, called)
+	}
+
+	// Viewer must not retry on HTTP 429 rate limits, and Retry-After dates are capped at 24h.
+	attempts := 0
+	client.HTTP.Transport = roundTrip(func(r *http.Request) (*http.Response, error) {
+		attempts++
+		h := make(http.Header)
+		h.Set("Retry-After", "Wed, 21 Oct 2099 07:28:00 GMT")
+		return &http.Response{StatusCode: http.StatusTooManyRequests, Body: io.NopCloser(strings.NewReader("")), Header: h}, nil
+	})
+	_, err = client.Viewer(context.Background(), nil)
+	var rl *RateLimit
+	if !errors.As(err, &rl) || attempts != 1 {
+		t.Fatalf("expected single rate-limit attempt, attempts=%d err=%v", attempts, err)
+	}
+	if rl.RetryAt.Year() >= 2099 {
+		t.Fatalf("Retry-After date was not capped: %v", rl.RetryAt)
+	}
 }

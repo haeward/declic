@@ -113,10 +113,10 @@ func TestRichMediaMathAndMermaid(t *testing.T) {
 	if !strings.Contains(cleaned, "$$\\sum_{i=1}^{n} \\frac{i}{2}$$") {
 		t.Fatalf("display math block should remain for Options.Math:\n%s", cleaned)
 	}
-	if !strings.Contains(cleaned, "```declic-video\nhttps://assets.leetcode.cn/demo.mp4\nhttps://assets.leetcode.cn/poster.jpg\n```") {
+	if !strings.Contains(cleaned, "```declic-video\nhttps://assets.leetcode.cn/demo.mp4\n```") {
 		t.Fatalf("HTML5 video tag not extracted:\n%s", cleaned)
 	}
-	if !strings.Contains(cleaned, "```declic-video\nhttps://youtu.be/abc123XYZ\nhttps://assets.leetcode.com/users/images/thumb.png\n```") {
+	if !strings.Contains(cleaned, "```declic-video\nhttps://youtu.be/abc123XYZ\n```") {
 		t.Fatalf("linked YouTube video thumbnail not extracted:\n%s", cleaned)
 	}
 	if !strings.Contains(cleaned, "```declic-linked-image\nhttps://example.com/guide\nhttps://assets.leetcode.com/users/images/diag.png\nDiagram\n```") {
@@ -139,8 +139,33 @@ func TestRichMediaMathAndMermaid(t *testing.T) {
 	if fc.Kind != MermaidFlowchart || len(fc.Nodes) != 4 || len(fc.Edges) != 3 {
 		t.Fatalf("mermaid flowchart parse failed: %+v", fc)
 	}
-	seq := ParseMermaid("sequenceDiagram\n  Alice->>Bob: Hello\n  Bob-->>Alice: Hi")
-	if seq.Kind != MermaidSequence || len(seq.Actors) != 2 || len(seq.SeqSteps) != 2 {
+	seq := ParseMermaid("sequenceDiagram\n  participant A as Alice\n  A->>Bob: Hello\n  Bob-->>A: Hi")
+	if seq.Kind != MermaidSequence || len(seq.Actors) != 2 || len(seq.SeqSteps) != 2 || seq.NodeByID["A"].Label != "Alice" {
 		t.Fatalf("mermaid sequence parse failed: %+v", seq)
+	}
+}
+
+func TestRenderSecurityAndEdgeCases(t *testing.T) {
+	if !IsDirectVideoURL("https://cdn.example/demo.mp4") || IsDirectVideoURL("https:///demo.mp4") || IsDirectVideoURL("https://u:p@cdn.example/demo.mp4") {
+		t.Fatal("IsDirectVideoURL must require HTTPS host without userinfo")
+	}
+	if slug, ok := ParseLocalProblemURL("https://declic.local/problem/3sum"); !ok || slug != "3sum" {
+		t.Fatalf("ParseLocalProblemURL valid slug failed: %q %v", slug, ok)
+	}
+	if _, ok := ParseLocalProblemURL("https://declic.local/problem/../etc"); ok {
+		t.Fatal("ParseLocalProblemURL accepted unsafe slug")
+	}
+	desc := Description("", `<p>Body</p><noscript>secret-noscript</noscript><img src="file:///etc/passwd">`)
+	for _, bad := range []string{"<h1>", "secret-noscript", "<img"} {
+		if strings.Contains(desc, bad) {
+			t.Fatalf("Description leaked %q: %s", bad, desc)
+		}
+	}
+	md, _, _ := PreprocessArticleMarkdown(`<a href="javascript:alert(1)"><img data-src="https://evil.com/x.png" src="https://assets.leetcode.com/ok.png"></a>` + "\n!?!bad```fence.json!?!\n")
+	if strings.Contains(md, "javascript:") || strings.Contains(md, "evil.com") || strings.Contains(md, "declic-slides") {
+		t.Fatalf("unsafe markdown leaked:\n%s", md)
+	}
+	if got := mathNodeUnicode(parseTeX(`\displaystyle .5 + α`)); !strings.Contains(got, ".5") || !strings.Contains(got, "α") {
+		t.Fatalf("TeX parser corrupted decimal or UTF-8 rune: %q", got)
 	}
 }

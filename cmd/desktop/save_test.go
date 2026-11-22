@@ -40,9 +40,9 @@ func TestDelayedSaveCompletion(t *testing.T) {
 	}
 	a.save(func() { switched = true })
 	apply()
-	got, err := a.store.Load(a.key(), "template")
-	if !switched || buffer.Modified() || err != nil || got != "newer" {
-		t.Fatalf("latest save did not finish before transition: text=%q err=%v", got, err)
+	got, persisted, err := a.store.LoadDraft(a.key(), "template")
+	if !switched || buffer.Modified() || err != nil || !persisted || got != "newer" {
+		t.Fatalf("latest save did not finish before transition: text=%q persisted=%v err=%v", got, persisted, err)
 	}
 
 	// A failed write must prevent a transition and retain the dirty buffer.

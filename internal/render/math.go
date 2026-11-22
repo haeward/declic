@@ -4,6 +4,7 @@ import (
 	"strings"
 	"sync"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/markdown"
@@ -241,14 +242,15 @@ func (p *texParser) parseAtom() *mathNode {
 		p.pos++
 		return &mathNode{kind: mathIdent, text: string(ch)}
 	}
-	p.pos++
-	switch ch {
+	r, size := utf8.DecodeRuneInString(p.src[p.pos:])
+	p.pos += size
+	switch r {
 	case '-':
 		return &mathNode{kind: mathOp, text: "−"}
 	case '\'':
 		return &mathNode{kind: mathOp, text: "′"}
 	default:
-		return &mathNode{kind: mathOp, text: string(ch)}
+		return &mathNode{kind: mathOp, text: string(r)}
 	}
 }
 
@@ -262,16 +264,21 @@ func (p *texParser) parseCommand() *mathNode {
 		return &mathNode{kind: mathOp, text: "\n"}
 	}
 	start := p.pos
-	if !unicode.IsLetter(rune(p.src[p.pos])) {
-		p.pos++
+	r, size := utf8.DecodeRuneInString(p.src[p.pos:])
+	if !unicode.IsLetter(r) {
+		p.pos += size
 		cmd := p.src[start:p.pos]
 		if sym, ok := texSymbols[cmd]; ok {
 			return &mathNode{kind: mathOp, text: sym}
 		}
 		return &mathNode{kind: mathOp, text: cmd}
 	}
-	for p.pos < len(p.src) && unicode.IsLetter(rune(p.src[p.pos])) {
-		p.pos++
+	for p.pos < len(p.src) {
+		r, size = utf8.DecodeRuneInString(p.src[p.pos:])
+		if !unicode.IsLetter(r) {
+			break
+		}
+		p.pos += size
 	}
 	cmd := p.src[start:p.pos]
 	switch cmd {
@@ -317,12 +324,13 @@ func (p *texParser) parseCommand() *mathNode {
 			arg,
 			{kind: mathOp, text: ")"},
 		}}
-	case "left", "right", "big", "Big", "bigg", "Bigg", "displaystyle", "textstyle", "limits", "nolimits":
+	case "left", "right":
 		p.skipSpaces()
 		if p.pos < len(p.src) && p.src[p.pos] == '.' {
 			p.pos++
-			return nil
 		}
+		return nil
+	case "big", "Big", "bigg", "Bigg", "displaystyle", "textstyle", "limits", "nolimits":
 		return nil
 	case "overline", "bar", "hat", "tilde", "vec":
 		body := p.parseGroupArg()
@@ -418,6 +426,9 @@ func appendMathMLNode(parent *xhtml.Node, n *mathNode) {
 		mkText("mtext", n.text)
 	case mathFrac:
 		f := mk("mfrac")
+		if n.text == "binom" {
+			f.Attr = append(f.Attr, xhtml.Attribute{Key: "linethickness", Val: "0"})
+		}
 		nr := &xhtml.Node{Type: xhtml.ElementNode, Data: "mrow"}
 		dr := &xhtml.Node{Type: xhtml.ElementNode, Data: "mrow"}
 		f.AppendChild(nr)
@@ -731,10 +742,6 @@ func appendInlineMathSpans(spans *[]ui.Span, n *mathNode, size float32) {
 // using unified Times New Roman serif math typography (italic variables, upright numbers,
 // brackets, and operators) aligned on the text baseline with no background box.
 func InlineMathObject(tex string, size float32) (markdown.InlineObject, bool) {
-	return inlineMathObject(tex, size)
-}
-
-func inlineMathObject(tex string, size float32) (markdown.InlineObject, bool) {
 	trimmed := strings.TrimSpace(tex)
 	if trimmed == "" {
 		return markdown.InlineObject{}, false
@@ -777,10 +784,6 @@ func inlineMathObject(tex string, size float32) (markdown.InlineObject, bool) {
 // RenderDisplayMath renders a display TeX block natively in MyGo UI with classic serif
 // math typography directly on the page canvas (no background card or border, matching LeetCode).
 func RenderDisplayMath(c *ui.Context, tex string) {
-	renderDisplayMath(c, tex)
-}
-
-func renderDisplayMath(c *ui.Context, tex string) {
 	t := c.Theme()
 	root := parseTeX(tex)
 	ui.Column(c).FillWidth().Padding(8, 4).Center().Children(func() {
