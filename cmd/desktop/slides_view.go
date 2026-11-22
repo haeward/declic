@@ -30,7 +30,7 @@ type slideDeckState struct {
 
 func resolveSlideManifestURLs(site leetcode.Site, slug, rawSpec string) []string {
 	spec := strings.TrimSpace(rawSpec)
-	if colon := strings.LastIndex(spec, ":"); colon > 0 && !strings.HasPrefix(spec[colon:], "://") {
+	if colon := strings.LastIndex(spec, ":"); colon > strings.LastIndex(spec, "/") {
 		if strings.Contains(spec[colon+1:], ",") {
 			spec = strings.TrimSpace(spec[:colon])
 		}
@@ -38,41 +38,20 @@ func resolveSlideManifestURLs(site leetcode.Site, slug, rawSpec string) []string
 	if spec == "" {
 		return nil
 	}
-	if strings.HasPrefix(spec, "https://") {
-		if u, err := url.Parse(spec); err == nil && render.IsTrustedVideoHost(spec) && u.User == nil {
-			return []string{spec}
-		}
-		return nil
+	if strings.HasPrefix(spec, "//") {
+		spec = "https:" + spec
 	}
-	baseEditorial, err := url.Parse(site.URL() + "/problems/" + url.PathEscape(slug) + "/editorial/")
+	u, err := url.Parse(spec)
 	if err != nil {
 		return nil
 	}
-	var out []string
-	add := func(raw string) {
-		if raw == "" {
-			return
+	if u.Scheme != "" {
+		if u.Scheme == "https" && u.Host != "" && u.User == nil && render.IsTrustedVideoHost(spec) {
+			return []string{u.String()}
 		}
-		for _, existing := range out {
-			if existing == raw {
-				return
-			}
-		}
-		out = append(out, raw)
+		return nil
 	}
-	if rel, err := url.Parse(spec); err == nil {
-		resolved := baseEditorial.ResolveReference(rel)
-		if resolved.Scheme == "https" && resolved.Host != "" {
-			add(resolved.String())
-		}
-	}
-	trimmed := strings.TrimLeft(spec, "./")
-	if trimmed != "" {
-		add(site.URL() + "/problems/" + url.PathEscape(slug) + "/" + trimmed)
-		add(site.URL() + "/" + trimmed)
-		add("https://assets.leetcode.com/static_assets/media/" + trimmed)
-	}
-	return out
+	return resolveEditorialRelativeURLs(site, slug, spec)
 }
 
 func parseSlideManifestFrames(manifestURL string, body []byte) []string {
@@ -125,7 +104,9 @@ func parseSlideManifestFrames(manifestURL string, body []byte) []string {
 		if full.Scheme != "https" || full.Host == "" || full.User != nil {
 			continue
 		}
-		full.Path = path.Clean(full.Path)
+		if full.Path != "" {
+			full.Path = path.Clean(full.Path)
+		}
 		resolved = append(resolved, full.String())
 	}
 	return resolved

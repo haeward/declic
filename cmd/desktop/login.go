@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 
@@ -11,6 +12,17 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/haeward/declic/internal/leetcode"
 )
+
+func isPostLoginSiteURL(site leetcode.Site, raw string) bool {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || u.Scheme != "https" || u.User != nil {
+		return false
+	}
+	if !strings.EqualFold(u.Hostname(), string(site)) {
+		return false
+	}
+	return !strings.HasPrefix(u.Path, "/accounts/login")
+}
 
 func (a *app) openLogin() {
 	if a.loginWindow != nil {
@@ -191,7 +203,7 @@ func (a *app) startLogin() {
 		if currentURL != "" {
 			lastURL = currentURL
 		}
-		if !strings.HasPrefix(lastURL, site.URL()) || strings.Contains(lastURL, "/accounts/login") {
+		if !isPostLoginSiteURL(site, lastURL) {
 			return
 		}
 		a.post(func() { a.autoVerifyLogin(site, w) })
