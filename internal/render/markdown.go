@@ -328,8 +328,62 @@ func PreprocessArticleMarkdown(src string) (string, []PlaygroundRef, []string) {
 	flushProse()
 
 	cleaned := reMultiBlank.ReplaceAllString(out.String(), "\n\n")
+	cleaned = stripEmptyVideoSections(cleaned)
 	cleaned = mergeConsecutiveCodeBlocks(strings.TrimSpace(cleaned))
 	return cleaned, refs, videos
+}
+
+func isEmptyVideoHeading(line string) bool {
+	s := strings.TrimSpace(line)
+	if !strings.HasPrefix(s, "#") {
+		return false
+	}
+	s = strings.TrimSpace(strings.TrimLeft(s, "#"))
+	low := strings.ToLower(s)
+	return low == "video solution" || low == "视频题解"
+}
+
+func isHorizontalRuleLine(line string) bool {
+	s := strings.TrimSpace(line)
+	if s == "" {
+		return false
+	}
+	low := strings.ToLower(s)
+	if low == "<hr>" || low == "<hr/>" || low == "<hr />" {
+		return true
+	}
+	if len(s) >= 3 && (strings.Trim(s, "- ") == "" || strings.Trim(s, "* ") == "" || strings.Trim(s, "_ ") == "") {
+		return true
+	}
+	return false
+}
+
+// stripEmptyVideoSections drops orphan "Video Solution" headings whose video was
+// omitted (e.g., Premium-only editorial videos for non-Premium viewers).
+func stripEmptyVideoSections(src string) string {
+	lines := strings.Split(src, "\n")
+	out := make([]string, 0, len(lines))
+	inFence := false
+	for i := 0; i < len(lines); i++ {
+		trim := strings.TrimSpace(lines[i])
+		if strings.HasPrefix(trim, "```") {
+			inFence = !inFence
+			out = append(out, lines[i])
+			continue
+		}
+		if !inFence && isEmptyVideoHeading(lines[i]) {
+			j := i + 1
+			for j < len(lines) && (strings.TrimSpace(lines[j]) == "" || isHorizontalRuleLine(lines[j])) {
+				j++
+			}
+			if j >= len(lines) || strings.HasPrefix(strings.TrimSpace(lines[j]), "#") {
+				i = j - 1
+				continue
+			}
+		}
+		out = append(out, lines[i])
+	}
+	return reMultiBlank.ReplaceAllString(strings.Join(out, "\n"), "\n\n")
 }
 
 // convertDigitStartedInlineMath converts closed $0$, $1 \le n$, $10^4$ inline formulas

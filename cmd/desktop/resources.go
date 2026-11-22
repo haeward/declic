@@ -154,12 +154,36 @@ func (a *app) resourcePage(tab string) *resourcePage {
 	return a.resources[tab]
 }
 
+func (a *app) prepareArticle(tab string, s *resourcePage) {
+	if s == nil || s.article == nil || s.article.Content == "" {
+		return
+	}
+	if tab == "Editorial" && !s.article.Visible && s.article.Paid {
+		return
+	}
+	if s.cleanedRaw != s.article.Content {
+		s.cleanedRaw = s.article.Content
+		s.cleanedMD, s.cleanedRefs, s.cleanedVideos = render.PreprocessArticleMarkdown(s.article.Content)
+		s.cleanedHeadings = markdownHeadings(s.cleanedMD)
+	}
+	for _, ref := range s.cleanedRefs {
+		a.ensurePlayground(ref.Site, ref.UUID)
+	}
+	for _, vid := range s.cleanedVideos {
+		a.ensureInlineVideo(vid)
+	}
+}
+
 func (a *app) prefetchEditorial(site leetcode.Site, slug string) {
 	if slug == "" || a.closed {
 		return
 	}
 	s := a.resourcePage("Editorial")
-	if s.loaded || s.loading {
+	if s.loaded {
+		a.prepareArticle("Editorial", s)
+		return
+	}
+	if s.loading {
 		return
 	}
 	storeRoot := a.store.Root
@@ -173,6 +197,7 @@ func (a *app) prefetchEditorial(site leetcode.Site, slug string) {
 					}
 					s.article = cached
 					s.loaded = true
+					a.prepareArticle("Editorial", s)
 				})
 				return
 			}
@@ -201,6 +226,7 @@ func (a *app) prefetchEditorial(site leetcode.Site, slug string) {
 			}
 			s.article = art
 			s.loaded = true
+			a.prepareArticle("Editorial", s)
 		})
 	}()
 }
@@ -215,6 +241,7 @@ func (a *app) loadResource(tab string, article *leetcode.Article, submission *le
 		if cached, ok := readEditorialCache(a.store.Root, string(a.site), a.problem.Slug); ok {
 			s.article = cached
 			s.loaded = true
+			a.prepareArticle("Editorial", s)
 			return
 		}
 	}
@@ -302,6 +329,7 @@ func (a *app) loadResource(tab string, article *leetcode.Article, submission *le
 					}
 				}
 				s.article = detail
+				a.prepareArticle(tab, s)
 				return
 			}
 			s.more = more
@@ -403,7 +431,7 @@ func (a *app) resourceView(c *ui.Context) {
 			if s.article != nil {
 				ui.Column(c).FillWidth().Padding(14, 22, 24, 22).Gap(12).AlignItems(ui.Start).Children(func() {
 					if tab == "Solutions" {
-						linkButton(c, "‹ All solutions").OnClick(func() { a.stopInlineVideo(); s.article = nil })
+						linkButton(c, "‹ All solutions").OnClick(func() { a.pauseInlineVideos(); s.article = nil })
 					}
 					if s.article.Title != "" && (tab != "Editorial" || !strings.EqualFold(strings.TrimSpace(s.article.Title), strings.TrimSpace(a.problem.Title))) {
 						ui.Text(c, s.article.Title).FontSize(18).Bold()
@@ -426,17 +454,7 @@ func (a *app) resourceView(c *ui.Context) {
 					}
 					activeArticleCtx.Store(&articleContext{site: a.site, slug: a.problem.Slug})
 					opts := a.markdownOptions()
-					if s.cleanedRaw != s.article.Content {
-						s.cleanedRaw = s.article.Content
-						s.cleanedMD, s.cleanedRefs, s.cleanedVideos = render.PreprocessArticleMarkdown(s.article.Content)
-						s.cleanedHeadings = markdownHeadings(s.cleanedMD)
-						for _, ref := range s.cleanedRefs {
-							a.ensurePlayground(ref.Site, ref.UUID)
-						}
-						for _, vid := range s.cleanedVideos {
-							a.ensureInlineVideo(vid)
-						}
-					}
+					a.prepareArticle(tab, s)
 					if len(s.cleanedHeadings) >= 2 {
 						a.markdownTOC(c, s, s.cleanedHeadings, opts)
 					}
