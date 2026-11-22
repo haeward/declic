@@ -7,7 +7,7 @@ tool github.com/egoist/mygo/cmd/mygo
 require (
 	github.com/egoist/mygo v0.7.4
 	golang.org/x/image v0.48.0
-	golang.org/x/net v0.62.0
+	golang.org/x/net v0.63.0
 )
 
 require (
