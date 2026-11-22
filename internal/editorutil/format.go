@@ -63,9 +63,6 @@ func formatWhitespaceOnly(src string, tabSize int) string {
 	for len(out) > 0 && out[len(out)-1] == "" {
 		out = out[:len(out)-1]
 	}
-	if len(out) == 0 {
-		return ""
-	}
 	return strings.Join(out, "\n") + "\n"
 }
 
@@ -115,9 +112,6 @@ func formatBraceCode(src string, tabSize int) string {
 
 	for len(out) > 0 && out[len(out)-1] == "" {
 		out = out[:len(out)-1]
-	}
-	if len(out) == 0 {
-		return ""
 	}
 	return strings.Join(out, "\n") + "\n"
 }
@@ -172,7 +166,11 @@ func scanBraceDelta(line string, inBlockComment *bool) (netAfterLead, leadClose 
 			continue
 		}
 		if inBacktick {
-			if ch == '`' {
+			if escaped {
+				escaped = false
+			} else if ch == '\\' {
+				escaped = true
+			} else if ch == '`' {
 				inBacktick = false
 			}
 			continue
@@ -189,7 +187,11 @@ func scanBraceDelta(line string, inBlockComment *bool) (netAfterLead, leadClose 
 		}
 		if ch == '\'' {
 			seenCode = true
-			inSingle = true
+			// Ignore C++ digit separators (1'000) and unclosed Rust lifetimes (&'a str).
+			isDigitSep := i > 0 && isHexDigit(line[i-1]) && i+1 < len(line) && isHexDigit(line[i+1])
+			if !isDigitSep && hasClosingSingleQuote(line, i+1) {
+				inSingle = true
+			}
 			continue
 		}
 		if ch == '"' {
@@ -220,4 +222,26 @@ func scanBraceDelta(line string, inBlockComment *bool) (netAfterLead, leadClose 
 		}
 	}
 	return netAfterLead, leadClose
+}
+
+func isHexDigit(b byte) bool {
+	return (b >= '0' && b <= '9') || (b >= 'a' && b <= 'f') || (b >= 'A' && b <= 'F')
+}
+
+func hasClosingSingleQuote(line string, start int) bool {
+	escaped := false
+	for i := start; i < len(line); i++ {
+		if escaped {
+			escaped = false
+			continue
+		}
+		if line[i] == '\\' {
+			escaped = true
+			continue
+		}
+		if line[i] == '\'' {
+			return true
+		}
+	}
+	return false
 }

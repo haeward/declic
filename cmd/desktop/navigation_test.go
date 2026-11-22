@@ -45,9 +45,9 @@ func TestBackToProblemsWaitsForSaveAndRetainsCatalog(t *testing.T) {
 	if a.screen != "problems" || a.skip != 20 || a.search != "sample" {
 		t.Fatal("lost catalog context")
 	}
-	text, err := a.store.Load(a.key(), "")
-	if err != nil || text != "my solution" {
-		t.Fatalf("draft=%q err=%v", text, err)
+	text, persisted, err := a.store.LoadDraft(a.key(), "")
+	if err != nil || !persisted || text != "my solution" {
+		t.Fatalf("draft=%q persisted=%v err=%v", text, persisted, err)
 	}
 }
 
