@@ -131,7 +131,7 @@ sequenceDiagram
 
 The store writes a temporary file in the destination directory, syncs and closes it, then renames it over the destination. Write failures are returned to the application. This sequence does not establish a cross-platform guarantee of atomic replacement or recovery after power loss.
 
-A save that precedes a document transition disables editing and invokes the next action only after success. Window-close and application-quit handlers prevent exit while a job is pending or the buffer is modified; when idle with unsaved edits, they save before retrying the close or quit action. A save failure keeps the window open and the text available for retry.
+A save that precedes a document transition disables editing and invokes the next action only after success. For user-initiated, cancelable closes and quits, window-close and application-quit handlers prevent exit while a job is pending or the buffer is modified; when idle with unsaved edits, they save before retrying the close or quit action, and a save failure keeps the window open with the text available for retry. When the operating system forces session termination on macOS or Windows (`QuitEvent.SessionEnding`), cancellation is ignored by the OS, so the quit handler waits briefly for any in-flight save to finish on disk and synchronously performs a best-effort flush of newer draft edits and pending UI preferences. Draft persistence uses `editor.Buffer.Snapshot().WriteTo` to preserve existing per-line endings.
 
 ### Running and submitting code
 
