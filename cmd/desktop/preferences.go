@@ -121,12 +121,22 @@ func (a *app) maybePersistPreferences(now time.Time) {
 	if now.Sub(a.prefDirtyAt) < 600*time.Millisecond {
 		return
 	}
+	done := make(chan struct{})
+	var writeErr error
 	a.prefSaving = true
+	a.prefSaveDone = done
+	a.prefSaveErr = &writeErr
+	a.prefSavingVal = cur
 	path := a.prefPath
 	go func() {
 		err := cur.write(path)
+		writeErr = err
+		close(done)
 		a.post(func() {
 			a.prefSaving = false
+			if a.prefSaveDone == done {
+				a.prefSaveDone, a.prefSaveErr = nil, nil
+			}
 			if err != nil {
 				log.Print("Saving preferences: ", err)
 				a.prefDirtyAt = time.Now()
@@ -140,4 +150,28 @@ func (a *app) maybePersistPreferences(now time.Time) {
 			}
 		})
 	}()
+}
+
+func (a *app) flushPreferencesSync() {
+	if a.prefPath == "" || a.prefReadErr != nil {
+		return
+	}
+	if a.prefSaveDone != nil {
+		select {
+		case <-a.prefSaveDone:
+			if a.prefSaveErr != nil && *a.prefSaveErr == nil {
+				a.lastSavedPrefs = a.prefSavingVal
+			}
+		case <-time.After(2 * time.Second):
+			return
+		}
+	}
+	if cur := a.preferences(); cur != a.lastSavedPrefs {
+		if err := cur.write(a.prefPath); err != nil {
+			log.Print("Saving preferences during session end: ", err)
+		} else {
+			a.lastSavedPrefs = cur
+			a.prefDirty = false
+		}
+	}
 }

@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- Upgraded the MyGo desktop UI framework and packaging toolchain from `v0.7.4` to `v0.10.0`, bringing improved CJK Markdown autolink/emphasis handling, CJK editor auto-pairing and line wrapping, popup boundary clamping, and macOS APFS DMG fallback support.
+- Scoped `Esc` dismissal in the sign-in flow to the site-picker dialog so unhandled `Esc` presses inside the official login WebView do not close sign-in prematurely.
+- Preserved per-line endings when saving local drafts (`editor.Buffer.Snapshot().WriteTo`) and added serialized best-effort synchronous draft and preference flushing when the OS ends the user session (`QuitEvent.SessionEnding`).
+
 ## [0.1.0] - 2026-11-22
 
 First public preview release of Declic for macOS 14.0+ (Apple Silicon & Intel).

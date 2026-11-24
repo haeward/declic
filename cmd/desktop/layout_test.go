@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 	"github.com/haeward/declic/internal/leetcode"
 )
@@ -109,6 +110,59 @@ func TestLoginChoicesAreParallelAndProvisional(t *testing.T) {
 	}
 	if a.site != leetcode.COM || a.loginSite != leetcode.CN || a.problem.ID != "1" {
 		t.Fatal("selection changed active workspace")
+	}
+}
+
+func TestLoginPanelEscapeOnlyClosesSitePicker(t *testing.T) {
+	a, _ := testWorkspace(t)
+	a.loginSite = leetcode.COM
+	closeCount := 0
+	a.closeLogin = func() { closeCount++ }
+	v := ui.NewTester(a.loginPanel, 600, 420)
+
+	// Site-picker dialog (loginView == nil) dismisses on Escape, Cmd+W, and Ctrl+W.
+	for _, tc := range []struct {
+		name string
+		mods ui.Modifiers
+		key  ui.Key
+	}{
+		{"Escape", 0, ui.KeyEscape},
+		{"Cmd+W", ui.Cmd, ui.KeyW},
+		{"Ctrl+W", ui.Ctrl, ui.KeyW},
+	} {
+		before := closeCount
+		v.Key(tc.mods, tc.key)
+		if closeCount != before+1 {
+			t.Fatalf("%s did not close site-picker dialog via loginPanel", tc.name)
+		}
+	}
+
+	// Official login WebView in both loading and error states ignores Escape but keeps Cmd+W / Ctrl+W.
+	for _, state := range []struct {
+		name    string
+		loading bool
+		loadErr string
+	}{
+		{"loading", true, ""},
+		{"error", false, "network unavailable"},
+	} {
+		a.loginView = new(mygo.WebView)
+		a.loginLoading = state.loading
+		a.loginLoadError = state.loadErr
+		v.Frame()
+		before := closeCount
+		v.Key(0, ui.KeyEscape)
+		if closeCount != before {
+			t.Fatalf("Escape closed official login window in %s state", state.name)
+		}
+		v.Key(ui.Cmd, ui.KeyW)
+		if closeCount != before+1 {
+			t.Fatalf("Cmd+W did not close official login window in %s state", state.name)
+		}
+		v.Key(ui.Ctrl, ui.KeyW)
+		if closeCount != before+2 {
+			t.Fatalf("Ctrl+W did not close official login window in %s state", state.name)
+		}
 	}
 }
 

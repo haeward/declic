@@ -131,7 +131,12 @@ type app struct {
 	code             *editor.State
 	busy             bool
 	saving           bool // Snapshot-only saves leave the editor and IME active.
+	saveDone         chan struct{}
+	saveDoneErr      *error
+	savingVersion    uint64
 	closed           bool
+	sessionEnding    bool
+	closeLogin       func()
 	status           string
 	split            float32
 	changed          time.Time
@@ -154,6 +159,9 @@ type app struct {
 	prefDirty        bool
 	prefDirtyAt      time.Time
 	prefSaving       bool
+	prefSaveDone     chan struct{}
+	prefSaveErr      *error
+	prefSavingVal    preferences
 	openOnLaunch     string
 	lastProblemSlug  string
 	noRestoreSession bool
@@ -228,6 +236,12 @@ func (a *app) job(work func() (func(), error)) {
 	}()
 }
 
+func bufferDiskText(buf *editor.Buffer) string {
+	var b strings.Builder
+	_, _ = buf.Snapshot().WriteTo(&b)
+	return b.String()
+}
+
 func (a *app) save(next func()) {
 	if a.busy || a.closed {
 		return
@@ -238,16 +252,33 @@ func (a *app) save(next func()) {
 		}
 		return
 	}
-	key, text, store := a.key(), a.code.Buffer.String(), a.store
+	key, text, store := a.key(), bufferDiskText(a.code.Buffer), a.store
 	version := a.code.Buffer.Version()
+	done := make(chan struct{})
+	var saveErr error
 	a.saving = next == nil
+	a.saveDone = done
+	a.saveDoneErr = &saveErr
+	a.savingVersion = version
 	a.saveFailed = false
 	a.job(func() (func(), error) {
 		err := store.Save(key, text)
+		saveErr = err
+		close(done)
 		if err != nil {
-			return func() { a.saveFailed = true; a.errorStatus = true; a.status = err.Error() }, nil
+			return func() {
+				if a.saveDone == done {
+					a.saveDone, a.saveDoneErr = nil, nil
+				}
+				a.saveFailed = true
+				a.errorStatus = true
+				a.status = err.Error()
+			}, nil
 		}
 		return func() {
+			if a.saveDone == done {
+				a.saveDone, a.saveDoneErr = nil, nil
+			}
 			if a.code.Buffer.Version() == version {
 				a.code.Buffer.MarkSaved()
 			}
@@ -749,6 +780,52 @@ func (a *app) restoreOnStartup(site leetcode.Site, lastSlug string, verify func(
 	}()
 }
 
+func (a *app) handleWindowClose(e *mygo.CloseEvent, closeWin func()) {
+	if a.sessionEnding {
+		return
+	}
+	if a.busy || a.code.Buffer.Modified() {
+		e.PreventDefault()
+		if !a.busy {
+			a.save(closeWin)
+		}
+	}
+}
+
+func (a *app) handleBeforeQuit(e *mygo.QuitEvent, quit func()) {
+	if e != nil && e.SessionEnding {
+		a.sessionEnding = true
+		saveWaitOK := true
+		if a.saveDone != nil {
+			select {
+			case <-a.saveDone:
+				if a.saveDoneErr != nil && *a.saveDoneErr == nil && a.code.Buffer.Version() == a.savingVersion {
+					a.code.Buffer.MarkSaved()
+				}
+			case <-time.After(2 * time.Second):
+				saveWaitOK = false
+			}
+		}
+		if saveWaitOK && (!a.busy || a.saving) && a.problem.ID != "" && a.code.Buffer.Modified() {
+			if err := a.store.Save(a.key(), bufferDiskText(a.code.Buffer)); err != nil {
+				log.Print("Saving draft during session end: ", err)
+			} else {
+				a.code.Buffer.MarkSaved()
+			}
+		}
+		a.flushPreferencesSync()
+		return
+	}
+	if a.busy || a.code.Buffer.Modified() {
+		if e != nil {
+			e.PreventDefault()
+		}
+		if !a.busy {
+			a.save(quit)
+		}
+	}
+}
+
 func main() {
 	a := &app{site: leetcode.COM, account: "anonymous", language: "java", split: 45, showTopics: true, descriptionSize: 15, editorFontSize: 13, editorTabSize: 0, testPanelCollapsed: true, selectedRow: -1, code: &editor.State{Buffer: editor.NewBuffer(""), NoScrollPastEnd: true, SoftWrap: true}, editorSplit: 68}
 	root, err := mygo.App.Path(mygo.PathUserData)
@@ -801,20 +878,10 @@ func main() {
 			}
 		})
 		a.win.OnClose(func(e *mygo.CloseEvent) {
-			if a.busy || a.code.Buffer.Modified() {
-				e.PreventDefault()
-				if !a.busy {
-					a.save(func() { a.win.Close() })
-				}
-			}
+			a.handleWindowClose(e, func() { a.win.Close() })
 		})
 		mygo.App.OnBeforeQuit(func(e *mygo.QuitEvent) {
-			if a.busy || a.code.Buffer.Modified() {
-				e.PreventDefault()
-				if !a.busy {
-					a.save(func() { mygo.App.Quit() })
-				}
-			}
+			a.handleBeforeQuit(e, func() { mygo.App.Quit() })
 		})
 		done := make(chan struct{})
 		a.win.OnClosed(func() {

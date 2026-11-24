@@ -63,11 +63,28 @@ func (a *app) openLogin() {
 	})
 }
 
+func (a *app) loginPanelCloseRequested(c *ui.Context) bool {
+	// Only allow Escape to dismiss the borderless site-picker dialog; inside the
+	// official login WebView, unhandled Escape keys from page controls bubble up
+	// in MyGo v0.10+ and must not close an in-progress sign-in flow.
+	return (a.loginView == nil && c.Shortcut(0, ui.KeyEscape)) || primaryShortcut(c, ui.KeyW)
+}
+
+func (a *app) dismissLoginWindow() {
+	if a.closeLogin != nil {
+		a.closeLogin()
+		return
+	}
+	if a.loginWindow != nil {
+		a.loginWindow.Close()
+	}
+}
+
 func (a *app) loginPanel(c *ui.Context) {
 	a.applyTheme(c)
 	t := c.Theme()
-	if (c.Shortcut(0, ui.KeyEscape) || primaryShortcut(c, ui.KeyW)) && a.loginWindow != nil {
-		a.loginWindow.Close()
+	if a.loginPanelCloseRequested(c) && (a.loginWindow != nil || a.closeLogin != nil) {
+		a.dismissLoginWindow()
 		return
 	}
 	if a.loginView == nil {
